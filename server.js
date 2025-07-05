@@ -1043,50 +1043,345 @@ app.get("/api/margins", async (req, res) => {
   }
 })
 // Trades 
+
 // Trade Execution Endpoint
+// app.post("/api/trades/execute", async (req, res) => {
+//   try {
+//     const { instrument_key, action, quantity } = req.body;
+//     const currentAccessToken = getAccessTokenFromRequest(req);
+    
+//     if (!currentAccessToken) {
+//       return res.status(401).json({ error: "Not authenticated" });
+//     }
+
+//     // Validate inputs
+//     if (!['buy', 'sell'].includes(action)) {
+//       return res.status(400).json({ error: "Invalid action type" });
+//     }
+//     if (!Number.isInteger(quantity) || quantity <= 0) {
+//       return res.status(400).json({ error: "Invalid quantity" });
+//     }
+
+//     // Get current market price (using your existing cache system)
+//     const price = await getCurrentMarketPrice(instrument_key, currentAccessToken);
+
+//     // Calculate total cost for the trade
+//     const totalCost = price * quantity;
+
+//     // Get user's current coin balance
+//     const { data: userData, error: userError } = await supabase
+//       .from('users')
+//       .select('coins')
+//       .eq('id', userProfile.user_id)
+//       .single();
+
+//     if (userError) {
+//       console.error("Error fetching user data:", userError);
+//       return res.status(500).json({ error: "Failed to fetch user data" });
+//     }
+
+//     // Check if user has enough coins for buy orders
+//     if (action === 'buy' && userData.coins < totalCost) {
+//       return res.status(400).json({ 
+//         error: "Insufficient coins", 
+//         required: totalCost,
+//         available: userData.coins
+//       });
+//     }
+
+//     // Start transaction for atomic operations
+//     const { data: createdTrade, error: tradeError } = await supabase
+//       .from('trades')
+//       .insert({
+//         user_id: userProfile.user_id,
+//         instrument_key,
+//         action,
+//         quantity,
+//         price,
+//         status: 'completed'
+//       })
+//       .select()
+//       .single();
+
+//     if (tradeError) {
+//       console.error("Error creating trade:", tradeError);
+//       throw tradeError;
+//     }
+
+//     // Update user's coin balance
+//     let newCoinBalance;
+//     if (action === 'buy') {
+//       newCoinBalance = userData.coins - totalCost;
+//     } else { // sell
+//       newCoinBalance = userData.coins + totalCost;
+//     }
+
+//     const { error: updateError } = await supabase
+//       .from('users')
+//       .update({ coins: newCoinBalance })
+//       .eq('id', userProfile.user_id);
+
+//     if (updateError) {
+//       console.error("Error updating user coins:", updateError);
+//       // Rollback: Delete the created trade record
+//       await supabase
+//         .from('trades')
+//         .delete()
+//         .eq('id', createdTrade.id);
+      
+//       return res.status(500).json({ 
+//         error: "Failed to update coin balance",
+//         details: updateError.message
+//       });
+//     }
+
+//     res.json({
+//       success: true,
+//       message: `Dummy ${action} order executed`,
+//       trade: createdTrade,
+//       coinBalance: {
+//         previous: userData.coins,
+//         current: newCoinBalance,
+//         change: action === 'buy' ? -totalCost : totalCost
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error("Trade execution error:", error);
+//     res.status(500).json({
+//       success: false,
+//       error: "Trade execution failed",
+//       details: error.message
+//     });
+//   }
+// });
+
+// Helper function to get real market price from cache or API
+async function getRealMarketPrice(instrument_key) {
+  try {
+    // First, check the marketDataCache for real-time data
+    const cachedData = marketDataCache.find(item => item.instrument_key === instrument_key);
+    if (cachedData && cachedData.last_price) {
+      console.log(`[PRICE] Using cached LTP for ${instrument_key}: ${cachedData.last_price}`);
+      return cachedData.last_price;
+    }
+
+    // Second, check the quote cache
+    const quoteCached = getCachedData(quoteCache, instrument_key, QUOTE_CACHE_DURATION);
+    if (quoteCached && quoteCached.last_price) {
+      console.log(`[PRICE] Using quote cache for ${instrument_key}: ${quoteCached.last_price}`);
+      return quoteCached.last_price;
+    }
+
+    // Third, try to fetch from Zerodha API if we have access token
+    if (accessToken) {
+      console.log(`[PRICE] Fetching fresh LTP for ${instrument_key} from Zerodha API`);
+      
+      const response = await axios.get(`${ZERODHA_BASE_URL}/quote/ltp`, {
+        headers: {
+          Authorization: `token ${ZERODHA_API_KEY}:${accessToken}`,
+          "X-Kite-Version": "3"
+        },
+        params: { i: instrument_key },
+        timeout: 5000
+      });
+
+      const ltp = response.data.data[instrument_key]?.last_price;
+      if (ltp) {
+        console.log(`[PRICE] Fetched fresh LTP for ${instrument_key}: ${ltp}`);
+        
+        // Cache the result for future use
+        setCachedData(quoteCache, instrument_key, {
+          last_price: ltp,
+          instrument_key: instrument_key,
+          timestamp: Date.now()
+        });
+        
+        return ltp;
+      }
+    }
+
+    // Fourth, try to get from database (last known price from previous trades)
+    const { data: lastTrade, error } = await supabase
+      .from('trades')
+      .select('price')
+      .eq('instrument_key', instrument_key)
+      .eq('status', 'completed')
+      .order('timestamp', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!error && lastTrade) {
+      console.log(`[PRICE] Using last trade price for ${instrument_key}: ${lastTrade.price}`);
+      return lastTrade.price;
+    }
+
+  } catch (error) {
+    console.error(`[PRICE] Error fetching price for ${instrument_key}:`, error.message);
+  }
+}
+
+
+
+// New Trade Execution Endpoint (No Zerodha Auth Required)
 app.post("/api/trades/execute", async (req, res) => {
   try {
-    const { instrument_key, action, quantity } = req.body;
-    const currentAccessToken = getAccessTokenFromRequest(req);
+    const { instrument_key, action, quantity, user_id } = req.body;
     
-    if (!currentAccessToken) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
     // Validate inputs
-    if (!['buy', 'sell'].includes(action)) {
-      return res.status(400).json({ error: "Invalid action type" });
-    }
-    if (!Number.isInteger(quantity) || quantity <= 0) {
-      return res.status(400).json({ error: "Invalid quantity" });
+    if (!user_id) {
+      return res.status(400).json({ 
+        success: false,
+        error: "User ID is required" 
+      });
     }
 
-    // Get current market price (using your existing cache system)
-    const price = await getCurrentMarketPrice(instrument_key, currentAccessToken);
+    if (!instrument_key) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Instrument key is required" 
+      });
+    }
+
+    if (!['buy', 'sell'].includes(action)) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Invalid action type. Must be 'buy' or 'sell'" 
+      });
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Invalid quantity. Must be a positive integer" 
+      });
+    }
+
+    // Verify user exists in database
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, coins')
+      .eq('id', user_id)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found"
+      });
+    }
+
+    // Get real market price (uses cache, API, or fallback)
+    const price = await getRealMarketPrice(instrument_key);
+    const totalCost = price * quantity;
+
+    // Check if user has enough coins for buy orders
+    if (action === 'buy' && user.coins < totalCost) {
+      return res.status(400).json({ 
+        success: false,
+        error: "Insufficient coins", 
+        required: totalCost,
+        available: user.coins
+      });
+    }
+
+    // For sell orders, check if user has enough holdings
+    if (action === 'sell') {
+      const { data: holdings, error: holdingsError } = await supabase
+        .from('trades')
+        .select('action, quantity')
+        .eq('user_id', user_id)
+        .eq('instrument_key', instrument_key)
+        .eq('status', 'completed');
+
+      if (holdingsError) {
+        console.error("Error fetching holdings:", holdingsError);
+        return res.status(500).json({ 
+          success: false,
+          error: "Failed to verify holdings" 
+        });
+      }
+
+      // Calculate net holdings
+      const netHoldings = holdings.reduce((total, trade) => {
+        return total + (trade.action === 'buy' ? trade.quantity : -trade.quantity);
+      }, 0);
+
+      if (netHoldings < quantity) {
+        return res.status(400).json({
+          success: false,
+          error: "Insufficient holdings to sell",
+          available: netHoldings,
+          requested: quantity
+        });
+      }
+    }
 
     // Create trade record
-    const trade = {
-      user_id: userProfile.user_id, 
-      instrument_key,
-      action,
-      quantity,
-      price,
-      status: 'completed'
-    };
-
-    // Insert into trades table
-    const { data: createdTrade, error } = await supabase
+    const { data: createdTrade, error: tradeError } = await supabase
       .from('trades')
-      .insert(trade)
+      .insert({
+        user_id: user_id,
+        instrument_key,
+        action,
+        quantity,
+        price,
+        status: 'completed'
+      })
       .select()
       .single();
 
-    if (error) throw error;
+    if (tradeError) {
+      console.error("Error creating trade:", tradeError);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to create trade record",
+        details: tradeError.message
+      });
+    }
 
+    // Update user's coin balance
+    let newCoinBalance;
+    if (action === 'buy') {
+      newCoinBalance = user.coins - totalCost;
+    } else { // sell
+      newCoinBalance = user.coins + totalCost;
+    }
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ coins: newCoinBalance })
+      .eq('id', user_id);
+
+    if (updateError) {
+      console.error("Error updating user coins:", updateError);
+      
+      // Rollback: Delete the created trade record
+      await supabase
+        .from('trades')
+        .delete()
+        .eq('id', createdTrade.id);
+      
+      return res.status(500).json({ 
+        success: false,
+        error: "Failed to update coin balance",
+        details: updateError.message
+      });
+    }
+
+    // Send success response
     res.json({
       success: true,
-      message: `Dummy ${action} order executed`,
-      trade: createdTrade
+      message: `${action.toUpperCase()} order executed successfully`,
+      trade: {
+        ...createdTrade,
+        total_cost: totalCost
+      },
+      coinBalance: {
+        previous: user.coins,
+        current: newCoinBalance,
+        change: action === 'buy' ? -totalCost : totalCost
+      }
     });
 
   } catch (error) {
@@ -1098,6 +1393,8 @@ app.post("/api/trades/execute", async (req, res) => {
     });
   }
 });
+
+
 // Trade History Endpoint
 app.get("/api/trades/history", async (req, res) => {
   try {
@@ -1110,14 +1407,14 @@ app.get("/api/trades/history", async (req, res) => {
       });
     }
 
-    // First, get the user's role
+    // Get the user's role
     const { data: user, error: userError } = await supabase
       .from('users')
       .select('role')
       .eq('id', userId)
       .single();
 
-    if (userError) {
+    if (userError || !user) {
       console.error("User fetch error:", userError);
       return res.status(500).json({
         success: false,
@@ -1125,21 +1422,13 @@ app.get("/api/trades/history", async (req, res) => {
       });
     }
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found"
-      });
-    }
-
-    // Build the query based on user role
+    // Build the query without instruments join
     let query = supabase
       .from('trades')
       .select(`
         trade_id,
         instrument_key,
         user_id,
-        instruments(tradingsymbol, name),
         action,
         quantity,
         price,
@@ -1147,11 +1436,10 @@ app.get("/api/trades/history", async (req, res) => {
         status
       `);
 
-    // If user is not admin, filter by their user_id
+    // Filter by user_id if not admin
     if (user.role !== 'admin') {
       query = query.eq('user_id', userId);
     }
-    // If user is admin, fetch all trades (no filter needed)
 
     const { data: trades, error } = await query
       .order('timestamp', { ascending: false });
@@ -1172,6 +1460,7 @@ app.get("/api/trades/history", async (req, res) => {
     });
   }
 });
+
 
 // Portfolio Summary Endpoint
 app.get("/api/trades/portfolio", async (req, res) => {
@@ -1241,26 +1530,209 @@ app.get("/api/trades/portfolio", async (req, res) => {
   }
 });
 
-// Helper function to get current market price
-async function getCurrentMarketPrice(instrument_key, accessToken) {
-  // Check your existing cache first
-  const cached = quoteCache.get(instrument_key);
-  if (cached && Date.now() - cached.timestamp < QUOTE_CACHE_DURATION) {
-    return cached.data.last_price;
+
+
+// New Portfolio Summary Endpoint (No Zerodha Auth Required)
+app.get("/api/v2/trades/portfolio/:user_id", async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required"
+      });
+    }
+
+    // Verify user exists
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, coins')
+      .eq('id', user_id)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found"
+      });
+    }
+
+    // Get all completed trades for user
+    const { data: trades, error } = await supabase
+      .from('trades')
+      .select('instrument_key, action, quantity, price, timestamp')
+      .eq('user_id', user_id)
+      .eq('status', 'completed')
+      .order('timestamp', { ascending: false });
+
+    if (error) {
+      console.error("Error fetching trades:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to fetch trade history"
+      });
+    }
+
+    // Calculate portfolio positions
+    const portfolio = trades.reduce((acc, trade) => {
+      if (!acc[trade.instrument_key]) {
+        acc[trade.instrument_key] = {
+          quantity: 0,
+          total_investment: 0,
+          average_price: 0,
+          trades: []
+        };
+      }
+
+      const multiplier = trade.action === 'buy' ? 1 : -1;
+      acc[trade.instrument_key].quantity += multiplier * trade.quantity;
+      acc[trade.instrument_key].total_investment += multiplier * trade.quantity * trade.price;
+      acc[trade.instrument_key].trades.push(trade);
+      
+      if (acc[trade.instrument_key].quantity !== 0) {
+        acc[trade.instrument_key].average_price = 
+          acc[trade.instrument_key].total_investment / acc[trade.instrument_key].quantity;
+      }
+
+      return acc;
+    }, {});
+
+    // Filter out zero-quantity positions and add current market data
+    const positions = Object.entries(portfolio)
+      .filter(([_, pos]) => pos.quantity > 0)
+      .map(([instrument_key, position]) => {
+        const current_price = getMockMarketPrice(instrument_key);
+        const current_value = position.quantity * current_price;
+        const pnl = (current_price - position.average_price) * position.quantity;
+        const pnl_percent = position.average_price > 0 ? 
+          ((current_price - position.average_price) / position.average_price) * 100 : 0;
+
+        return {
+          instrument_key,
+          quantity: position.quantity,
+          average_price: Math.round(position.average_price * 100) / 100,
+          total_investment: Math.round(position.total_investment * 100) / 100,
+          current_price: current_price,
+          current_value: Math.round(current_value * 100) / 100,
+          pnl: Math.round(pnl * 100) / 100,
+          pnl_percent: Math.round(pnl_percent * 100) / 100,
+          trade_count: position.trades.length
+        };
+      });
+
+    // Calculate total portfolio value
+    const totalInvestment = positions.reduce((sum, pos) => sum + pos.total_investment, 0);
+    const totalCurrentValue = positions.reduce((sum, pos) => sum + pos.current_value, 0);
+    const totalPnL = positions.reduce((sum, pos) => sum + pos.pnl, 0);
+
+    res.json({
+      success: true,
+      portfolio: {
+        user_id,
+        coin_balance: user.coins,
+        positions,
+        summary: {
+          total_positions: positions.length,
+          total_investment: Math.round(totalInvestment * 100) / 100,
+          total_current_value: Math.round(totalCurrentValue * 100) / 100,
+          total_pnl: Math.round(totalPnL * 100) / 100,
+          total_pnl_percent: totalInvestment > 0 ? 
+            Math.round((totalPnL / totalInvestment) * 10000) / 100 : 0
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Portfolio error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch portfolio",
+      details: error.message
+    });
   }
+});
 
-  // Fallback to API request
-  const response = await axios.get(`${ZERODHA_BASE_URL}/quote/ltp`, {
-    headers: {
-      Authorization: `token ${ZERODHA_API_KEY}:${accessToken}`,
-      "X-Kite-Version": "3"
-    },
-    params: { i: instrument_key }
-  });
+// New Trade History Endpoint (No Zerodha Auth Required)
+app.get("/api/v2/trades/history/:user_id", async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    const { limit = 50, offset = 0 } = req.query;
 
-  return response.data.data[instrument_key].last_price;
-}
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        error: "User ID is required"
+      });
+    }
 
+    // Verify user exists
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('id', user_id)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found"
+      });
+    }
+
+    // Get trades with pagination
+    let query = supabase
+      .from('trades')
+      .select(`
+        trade_id,
+        instrument_key,
+        user_id,
+        action,
+        quantity,
+        price,
+        timestamp,
+        status
+      `)
+      .eq('user_id', user_id)
+      .order('timestamp', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data: trades, error } = await query;
+
+    if (error) {
+      console.error("Error fetching trade history:", error);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to fetch trade history"
+      });
+    }
+
+    // Add calculated fields to each trade
+    const enhancedTrades = trades.map(trade => ({
+      ...trade,
+      total_value: trade.quantity * trade.price,
+      formatted_timestamp: new Date(trade.timestamp).toLocaleString()
+    }));
+
+    res.json({
+      success: true,
+      trades: enhancedTrades,
+      pagination: {
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        total: enhancedTrades.length
+      }
+    });
+
+  } catch (error) {
+    console.error("Trade history error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch trade history",
+      details: error.message
+    });
+  }
+});
 
 // Health check
 app.get("/api/health", (req, res) => {
