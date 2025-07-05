@@ -5,7 +5,8 @@ import { useState, useEffect, useRef, useCallback } from "react"
 import { RefreshCw } from "../../components/icons/index.jsx";
 import { Search } from "../../components/icons/index.jsx";
 import { Trash } from "../../components/icons/index.jsx";
-import { Plus } from 'lucide-react'; // updated because the search ws not working with the previous iteration
+import { Plus } from 'lucide-react'; 
+import { supabase } from "../../../utils/supabase";
 
 
 
@@ -13,7 +14,8 @@ const API_BASE_URL = '/api';
 
 const AdminWatchlist = () => {
   const CACHE_DURATION = 24 * 60 * 60 * 1000;
-  
+  //const ADMIN_WATCHLIST = '123e4567-e89b-12d3-a456-426614174000';
+
   // State variables
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [accessToken, setAccessToken] = useState("")
@@ -202,7 +204,7 @@ const AdminWatchlist = () => {
             Object.keys(data.data).forEach((key) => {
               const missing = nseInstruments.filter(inst => !Object.keys(data.data).includes(inst));
               if (missing.length > 0) {
-              console.warn("No data for instruments:", missing);
+              //console.warn("No data for instruments:", missing);
               }
               const instrumentData = data.data[key]
               if (instrumentData && instrumentData.ohlc) {
@@ -610,12 +612,99 @@ const AdminWatchlist = () => {
     }
   };
 
-  // Save watchlist to localStorage
-  useEffect(() => {
-    localStorage.setItem("zerodha_watchlist", JSON.stringify(watchlist))
-  }, [watchlist])
+// // Save watchlist to localStorage
+// useEffect(() => {
+//   localStorage.setItem("zerodha_watchlist", JSON.stringify(watchlist))
+//   const saveToSupabase = async () => {
+//   try {
+//     // Clear ALL watchlist items from the table
+//     const { error: deleteError } = await supabase
+//       .from('watchlist_items')
+//       .delete()
+//       .neq('id', 0); // This deletes all rows
 
-  useEffect(() => {
+//     if (deleteError) {
+
+//       console.error('Error clearing all items:', deleteError);
+//       return;
+//     }
+
+//     console.log('Cleared all watchlist items');
+
+//     // Now insert new watchlist items
+//     const itemsToSave = watchlist.map((item, index) => ({
+//       watchlist_id: 'a1b2c3d4-1234-5678-9101-112131415161',
+//       instrument_key: typeof item === 'string' ? item : item.instrument_key
+//     }));
+
+//     const { error } = await supabase
+//       .from('watchlist_items')
+//       .insert(itemsToSave);
+
+//     if (error) {
+//       console.error('Insert error details:', error);
+//       return;
+//     }
+
+//     console.log(`Successfully saved ${itemsToSave.length} items`);
+//  } catch (error) {
+//     console.error('Unexpected error:', error);
+//   }
+// };
+//   saveToSupabase();
+// }, [watchlist])
+  
+// Save watchlist to localStorage
+useEffect(() => {
+  localStorage.setItem("zerodha_watchlist", JSON.stringify(watchlist))
+  
+  const saveToSupabase = async () => {
+    try {
+      // Clear ALL watchlist items from the table
+      const { error: deleteError } = await supabase
+        .from('watchlist_items')
+        .delete()
+        .neq('id', 0); // This deletes all rows
+
+      if (deleteError) {
+        console.error('Error clearing all items:', deleteError);
+        return;
+      }
+
+      console.log('Cleared all watchlist items');
+
+      // Now insert new watchlist items
+      const itemsToSave = watchlist.map((item, index) => ({
+        watchlist_id: 'a1b2c3d4-1234-5678-9101-112131415161',
+        instrument_key: typeof item === 'string' ? item : item.instrument_key
+      }));
+
+      const { error } = await supabase
+        .from('watchlist_items')
+        .insert(itemsToSave);
+
+      if (error) {
+        console.error('Insert error details:', error);
+        return;
+      }
+
+      console.log(`Successfully saved ${itemsToSave.length} items`);
+    } catch (error) {
+      console.error('Unexpected error:', error);
+    }
+  };
+
+  // Debounce the function call
+  const timeoutId = setTimeout(() => {
+    saveToSupabase();
+  }, 300); // Wait 300ms before executing
+
+  // Cleanup function to cancel the timeout if effect runs again
+  return () => clearTimeout(timeoutId);
+}, [watchlist]);
+  
+
+useEffect(() => {
     if (isAuthenticated && instrumentsCacheRef.current.length === 0) {
       updateInstrumentsCache();
     }

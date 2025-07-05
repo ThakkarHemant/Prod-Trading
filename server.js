@@ -7,7 +7,8 @@ const fs = require('fs');
 require("dotenv").config();
 const { findAvailablePort } = require("./utils/portHandler");
 const { createClient } = require('@supabase/supabase-js');
-
+let marketDataCache = {}
+let activeWatchlist = []
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
@@ -1321,36 +1322,6 @@ app.use("*", (req, res) => {
     ],
   })
 })
-/*
-async function startServer() {
-  try {
-    const port = await findAvailablePort(PORT)
-
-    // Initialize instruments before starting server
-    initializeInstruments();
-
-    app.listen(port, () => {
-      console.log(`🚀 Zerodha Trading API Server running on port ${port}`)
-      console.log(`📊 API URL: http://localhost:${port}/api`)
-      console.log(`🔑 Zerodha API Key: ${ZERODHA_API_KEY ? `${ZERODHA_API_KEY.substring(0, 8)}...` : "Not configured"}`)
-      console.log(`🔐 Zerodha API Secret: ${ZERODHA_API_SECRET ? "Configured" : "Not configured"}`)
-      console.log(`🌐 Login URL: https://kite.trade/connect/login?api_key=${ZERODHA_API_KEY}`)
-      console.log(`📋 Instruments loaded: ${getInstruments().length} (${getDataSource()})`)
-      console.log(`\n📋 Available endpoints:`)
-      console.log(`   GET  /api - API documentation`)
-      console.log(`   GET  /api/health - Health check`)
-      console.log(`   GET  /api/search?q=term - Search instruments`)
-      console.log(`   GET  /api/instruments/status - Instruments status`)
-    })
-  } catch (error) {
-    console.error("❌ Failed to start server:", error.message)
-    process.exit(1)
-  }
-}
-
-startServer()
-
-*/
 
 // Add these after your existing app initialization
 const server = http.createServer(app);
@@ -1359,14 +1330,13 @@ const io = socketIo(server, {
     origin: ["http://localhost:3000", "http://localhost:5173"],
     credentials: true,
     methods: ["GET", "POST"]
-  }
+  },
+  path: "/socket.io", // Explicit path
+  transports: ["websocket", "polling"] // Enable both transports
 });
 
 // WebSocket connection management
-const connectedUsers = new Map(); // userId -> socket mapping
-const activeSubscriptions = new Set(); // Set of instrument_keys currently subscribed
-let zerodhaWebSocket = null;
-let marketDataInterval = null;
+const connectedUsers = new Map();  
 
 // ========================================
 // WebSocket Authentication Middleware
@@ -1409,467 +1379,196 @@ io.on('connection', async (socket) => {
   
   // Store connection
   connectedUsers.set(socket.userId, socket);
-
-  try {
-    // Get user's watchlists
-    const userWatchlists = await getUserWatchlists(socket.userId, socket.userRole);
-    
-    // Subscribe to user's instruments
-    await subscribeUserToInstruments(socket, userWatchlists);
-    
-    // Send initial market data
-    await sendInitialMarketData(socket, userWatchlists);
-
-  } catch (error) {
-    console.error(`[WS] Error setting up user ${socket.userId}:`, error);
-  }
-
   // Handle disconnection
   socket.on('disconnect', () => {
     console.log(`[WS] User ${socket.userId} disconnected`);
     connectedUsers.delete(socket.userId);
-    updateActiveSubscriptions();
-  });
-
-  // Handle manual subscription requests
-  socket.on('subscribe_instruments', async (instrumentKeys) => {
-    try {
-      await handleManualSubscription(socket, instrumentKeys);
-    } catch (error) {
-      console.error('[WS] Manual subscription error:', error);
-      socket.emit('error', { message: 'Subscription failed' });
-    }
   });
 });
 
-// ========================================
-// User Watchlist Management
-// ========================================
-async function getUserWatchlists(userId, userRole) {
+
+async function refreshWatchlist() {
   try {
-    let query = supabase
+    console.log('[Watchlist] Fetching from Supabase...');
+    const { data, error } = await supabase
       .from('watchlist_items')
-      .select(`
-        instrument_key,
-        watchlist_id
-      `);
+      .select('instrument_key')
 
-    if (userRole === 'admin') {
-      // Admin can see all watchlists
-      query = query.eq('watchlists.is_default', true);
+    if (error) throw error;
+    
+    // Clear previous data
+    activeWatchlist = [];
+    marketDataCache = []; // Clear market data too
+    
+    if (data && data.length > 0) {
+      activeWatchlist = data.map(item => item.instrument_key);
+      console.log(`[Watchlist] Updated with ${activeWatchlist.length} instruments:`, activeWatchlist);
     } else {
-      // Regular users: get watchlists assigned to them OR default watchlists
-      query = query.or(`
-        watchlists.id.in.(
-          select watchlist_id from user_watchlists where user_id = '${userId}'
-        ),
-        watchlists.is_default.eq.true
-      `);
+      console.warn('[Watchlist] Empty response from Supabase - no fallback data');
+      activeWatchlist = [];
     }
-
-    const { data: watchlistItems, error } = await query;
-
-    if (error) {
-      console.error('[WS] Watchlist fetch error:', error);
-      return [];
-    }
-
-    return watchlistItems || [];
-  } catch (error) {
-    console.error('[WS] getUserWatchlists error:', error);
-    return [];
+    
+    return activeWatchlist;
+  } catch (err) {
+    console.error("[Watchlist] Error:", err);
+    activeWatchlist = [];
+    marketDataCache = [];
+    return activeWatchlist;
   }
 }
 
-// ========================================
-// Subscription Management
-// ========================================
-async function subscribeUserToInstruments(socket, watchlistItems) {
-  const instrumentKeys = watchlistItems.map(item => item.instrument_key);
-  
-  // Add instruments to active subscriptions
-  instrumentKeys.forEach(key => activeSubscriptions.add(key));
-  
-  // Join socket to instrument-specific rooms
-  instrumentKeys.forEach(key => {
-    socket.join(`instrument_${key}`);
-  });
-
-  console.log(`[WS] User ${socket.userId} subscribed to ${instrumentKeys.length} instruments`);
-  
-  // Update Zerodha WebSocket subscription
-  await updateZerodhaSubscription();
-}
-
-async function handleManualSubscription(socket, instrumentKeys) {
-  if (!Array.isArray(instrumentKeys)) return;
-  
-  // Validate instruments exist in user's watchlists
-  const userWatchlists = await getUserWatchlists(socket.userId, socket.userRole);
-  const allowedInstruments = userWatchlists.map(item => item.instrument_key);
-  
-  const validInstruments = instrumentKeys.filter(key => 
-    allowedInstruments.includes(key)
-  );
-
-  // Subscribe to valid instruments
-  validInstruments.forEach(key => {
-    activeSubscriptions.add(key);
-    socket.join(`instrument_${key}`);
-  });
-
-  await updateZerodhaSubscription();
-}
-
-async function updateActiveSubscriptions() {
-  // Recalculate active subscriptions based on connected users
-  const newActiveSubscriptions = new Set();
-  
-  for (const [userId, socket] of connectedUsers) {
-    try {
-      const watchlistItems = await getUserWatchlists(userId, socket.userRole);
-      watchlistItems.forEach(item => {
-        newActiveSubscriptions.add(item.instrument_key);
-      });
-    } catch (error) {
-      console.error(`[WS] Error updating subscriptions for user ${userId}:`, error);
-    }
-  }
-  
-  activeSubscriptions.clear();
-  newActiveSubscriptions.forEach(key => activeSubscriptions.add(key));
-  
-  await updateZerodhaSubscription();
-}
-
-// ========================================
-// Zerodha WebSocket Integration
-// ========================================
-async function updateZerodhaSubscription() {
-  if (activeSubscriptions.size === 0) {
-    console.log('[WS] No active subscriptions ');
+// 2. Fixed updateMarketData - only fetch data for current watchlist
+async function updateMarketData() {
+  if (!accessToken) {
+    console.log('[Market] No access token');
     return;
   }
 
-  // For demo purposes, we'll simulate market data
-  // In production, integrate with Zerodha WebSocket
-  if (!marketDataInterval && activeSubscriptions.size > 0) {
-    startMarketDataSimulation();
-  } else if (marketDataInterval && activeSubscriptions.size === 0) {
-    stopMarketDataSimulation();
+  if (!activeWatchlist || activeWatchlist.length === 0) {
+    console.log('[Market] Empty watchlist - no data to fetch');
+    marketDataCache = []; // Clear cache when no watchlist
+    return;
   }
-}
-
-function startMarketDataSimulation() {
-  console.log(`[WS] Starting market data simulation for ${activeSubscriptions.size} instruments`);
-  
-  marketDataInterval = setInterval(async () => {
-    try {
-      // Fetch real market data for subscribed instruments
-      const instrumentsArray = Array.from(activeSubscriptions);
-      
-      if (instrumentsArray.length === 0) return;
-
-      // Use your existing quote API logic
-      const marketData = await fetchMarketDataForInstruments(instrumentsArray);
-      
-      // Broadcast to subscribers
-      broadcastMarketData(marketData);
-      
-      // Update database
-      await updateMarketDataInDatabase(marketData);
-      
-    } catch (error) {
-      console.error('[WS] Market data fetch error:', error);
-    }
-  }, 5000); // Update every 5 seconds
-}
-
-function stopMarketDataSimulation() {
-  if (marketDataInterval) {
-    clearInterval(marketDataInterval);
-    marketDataInterval = null;
-    console.log('[WS] Stopped market data simulation');
-  }
-}
-
-async function fetchMarketDataForInstruments(instrumentKeys) {
-  if (!accessToken) return {};
 
   try {
-    // Use your existing caching logic
-    const cacheKey = instrumentKeys.sort().join(',');
-    const cachedData = getCachedData(quoteCache, cacheKey, QUOTE_CACHE_DURATION);
+    console.log('[Market] Fetching data for:', activeWatchlist.length, 'instruments:', activeWatchlist);
     
-    if (cachedData) {
-      return cachedData;
-    }
-
-    // Fetch fresh data using your existing API logic
-    const params = new URLSearchParams();
-    instrumentKeys.forEach(symbol => params.append("i", symbol));
-
-    const response = await axios.get(`${ZERODHA_BASE_URL}/quote?${params.toString()}`, {
+    // Using your existing quote API endpoint
+    const response = await axios.post('http://localhost:3000/api/quote', {
+      instruments: activeWatchlist // Only send current watchlist
+    }, {
       headers: {
-        Authorization: `token ${ZERODHA_API_KEY}:${accessToken}`,
-        "X-Kite-Version": "3",
-      },
-      timeout: 10000,
+        'Cookie': `zerodha_session=${JSON.stringify({ access_token: accessToken })}`
+      }
     });
 
-    const marketData = response.data.data;
+    const quoteData = response.data.data;
     
-    // Cache the data
-    setCachedData(quoteCache, cacheKey, marketData);
+    // Clear cache and rebuild with only current watchlist data
+    marketDataCache = [];
     
-    return marketData;
+    // Only process instruments that are in our current watchlist
+    activeWatchlist.forEach(instrumentKey => {
+      if (quoteData[instrumentKey]) {
+        marketDataCache.push({
+          instrument_key: instrumentKey,
+          last_price: quoteData[instrumentKey].last_price,
+          change_percent: quoteData[instrumentKey].change_percent || 0,
+          ohlc: quoteData[instrumentKey].ohlc || {},
+          volume: quoteData[instrumentKey].volume || 0
+        });
+      }
+    });
+
+    console.log('[Market] Processed:', marketDataCache.length, 'instruments (expected:', activeWatchlist.length, ')');
+    
+    // Debug: Log what we're caching
+    console.log('[Market] Cache contents:', marketDataCache.map(item => item.instrument_key));
     
   } catch (error) {
-    console.error('[WS] fetchMarketDataForInstruments error:', error);
-    return {};
+    console.error('[Market] Update failed:', {
+      message: error.message,
+      response: error.response?.data
+    });
+    // On error, clear the cache to avoid stale data
+    marketDataCache = [];
   }
 }
 
-// ========================================
-// Market Data Broadcasting
-// ========================================
-function broadcastMarketData(marketData) {
-  Object.keys(marketData).forEach(instrumentKey => {
-    const data = marketData[instrumentKey];
-    
-    // Prepare broadcast data
-    const broadcastData = {
-      instrument_key: instrumentKey,
-      last_price: data.last_price,
-      net_change: data.net_change,
-      change_percent: data.ohlc?.close ? 
-        (((data.last_price - data.ohlc.close) / data.ohlc.close) * 100) : 0,
-      volume: data.volume,
-      last_trade_time: data.last_trade_time,
-      ohlc: data.ohlc,
-      timestamp: new Date().toISOString()
-    };
+// 3. Fixed broadcast function
+function broadcastData() {
+  console.log('[Broadcast] Checking data to send...');
+  
+  if (marketDataCache.length === 0) {
+    console.log('[Broadcast] No data available to send');
+    return;
+  }
 
-    // Broadcast to all users subscribed to this instrument
-    io.to(`instrument_${instrumentKey}`).emit('market_update', broadcastData);
+  const clientCount = io.engine?.clientsCount || 0;
+  console.log(`[Broadcast] Sending ${marketDataCache.length} instruments to ${clientCount} clients`);
+  
+  // Debug: Log exactly what we're sending
+  console.log('[Broadcast] Sending instruments:', marketDataCache.map(item => item.instrument_key));
+
+  io.emit("watchlist_update", marketDataCache);
+  console.log('[Broadcast] Data sent to clients');
+}
+
+// 4. Socket connections with enhanced logging
+io.on("connection", (socket) => {
+  console.log(`[WS] Client connected: ${socket.id}`);
+
+  // Send initial data
+  if (marketDataCache.length > 0) {
+    console.log(`[WS] Sending initial data to ${socket.id}:`, marketDataCache.length, 'instruments');
+    socket.emit("watchlist_update", marketDataCache);
+  } else {
+    console.log(`[WS] No cached data for ${socket.id}`);
+  }
+
+  // Handle watchlist subscriptions (currently not used for filtering)
+  socket.on("watchlist_subscribe", (instruments) => {
+    console.log(`[WS] ${socket.id} subscribed to:`, instruments);
+    // Note: We're not using this for filtering - all clients get the same data
   });
-}
 
-async function sendInitialMarketData(socket, watchlistItems) {
-  try {
-    const instrumentKeys = watchlistItems.map(item => item.instrument_key);
-    
-    if (instrumentKeys.length === 0) return;
+  socket.on("disconnect", (reason) => {
+    console.log(`[WS] Client disconnected: ${socket.id}`, { reason });
+  });
 
-    const marketData = await fetchMarketDataForInstruments(instrumentKeys);
-    
-    const initialData = watchlistItems.map(item => {
-      const data = marketData[item.instrument_key] || {};
-      return {
-        instrument_key: item.instrument_key,
-        tradingsymbol: item.instruments?.tradingsymbol,
-        name: item.instruments?.name,
-        exchange: item.instruments?.exchange,
-        last_price: data.last_price || 0,
-        net_change: data.net_change || 0,
-        change_percent: data.ohlc?.close ? 
-          (((data.last_price - data.ohlc.close) / data.ohlc.close) * 100) : 0,
-        volume: data.volume || 0,
-        ohlc: data.ohlc || {},
-        last_trade_time: data.last_trade_time,
-        timestamp: new Date().toISOString()
-      };
-    });
-
-    socket.emit('initial_market_data', initialData);
-    
-  } catch (error) {
-    console.error('[WS] sendInitialMarketData error:', error);
-  }
-}
-
-// ========================================
-// Database Updates
-// ========================================
-async function updateMarketDataInDatabase(marketData) {
-  try {
-    const updates = Object.keys(marketData).map(instrumentKey => {
-      const data = marketData[instrumentKey];
-      return {
-        instrument_key: instrumentKey,
-        last_price: data.last_price,
-        ohlc: data.ohlc,
-        volume: data.volume,
-        updated_at: new Date().toISOString()
-      };
-    });
-
-    // Batch update market_data table
-    const { error } = await supabase
-      .from('market_data')
-      .upsert(updates, { 
-        onConflict: 'instrument_key',
-        ignoreDuplicates: false 
-      });
-
-    if (error) {
-      console.error('[WS] Database update error:', error);
-    }
-    
-  } catch (error) {
-    console.error('[WS] updateMarketDataInDatabase error:', error);
-  }
-}
-
-// ========================================
-// Watchlist Management API Endpoints
-// ========================================
-
-// Get user's watchlists (for WebSocket setup)
-app.get("/api/watchlists/user/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    // Verify user exists and get role
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('id, role')
-      .eq('id', userId)
-      .single();
-
-    if (userError || !user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    const watchlistItems = await getUserWatchlists(userId, user.role);
-    
-    res.json({
-      success: true,
-      watchlists: watchlistItems,
-      isAdmin: user.role === 'admin'
-    });
-    
-  } catch (error) {
-    console.error("Get user watchlists error:", error);
-    res.status(500).json({
-      error: "Failed to fetch user watchlists",
-      details: error.message
-    });
-  }
+  socket.on("ping", (cb) => {
+    console.log(`[WS] Ping received from ${socket.id}`);
+    if (typeof cb === 'function') cb();
+  });
 });
 
-// Add instrument to watchlist (Admin only)
-app.post("/api/watchlists/:watchlistId/instruments", async (req, res) => {
+// 5. Clean initialization - only call once
+async function initialize() {
   try {
-    const { watchlistId } = req.params;
-    const { instrument_key } = req.body;
-    const userId = req.headers['x-user-id'];
+    console.log('[System] Starting initialization...');
     
-    if (!userId || !instrument_key) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-
-    // Verify user is admin
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single();
-
-    if (userError || user.role !== 'admin') {
-      return res.status(403).json({ error: "Admin access required" });
-    }
-
-    // Add to watchlist
-    const { data: newItem, error } = await supabase
-      .from('watchlist_items')
-      .insert({
-        watchlist_id: watchlistId,
-        instrument_key: instrument_key
-      })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Notify connected users
-    await notifyWatchlistUpdate();
-
-    res.json({
-      success: true,
-      message: "Instrument added to watchlist",
-      item: newItem
-    });
+    // Step 1: Load watchlist from Supabase
+    await refreshWatchlist();
+    
+    // Step 2: Get market data for watchlist
+    await updateMarketData();
+    
+    // Step 3: Send initial broadcast
+    broadcastData();
+    
+    // Step 4: Set up intervals
+    console.log('[System] Setting up intervals...');
+    setInterval(async () => {
+      console.log('[System] Refreshing watchlist...');
+      await refreshWatchlist();
+      await updateMarketData();
+    }, 60000); // Refresh watchlist every minute
+    
+    setInterval(updateMarketData, 5000);  // Update market data every 5 seconds
+    setInterval(broadcastData, 1000);     // Broadcast every second
+    
+    console.log('[System] Initialization complete');
     
   } catch (error) {
-    console.error("Add watchlist instrument error:", error);
-    res.status(500).json({
-      error: "Failed to add instrument to watchlist",
-      details: error.message
-    });
-  }
-});
-
-// Remove instrument from watchlist (Admin only)
-app.delete("/api/watchlists/instruments/:itemId", async (req, res) => {
-  try {
-    const { itemId } = req.params;
-    const userId = req.headers['x-user-id'];
-    
-    // Verify user is admin
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single();
-
-    if (userError || user.role !== 'admin') {
-      return res.status(403).json({ error: "Admin access required" });
-    }
-
-    // Remove from watchlist
-    const { error } = await supabase
-      .from('watchlist_items')
-      .delete()
-      .eq('id', itemId);
-
-    if (error) throw error;
-
-    // Notify connected users
-    await notifyWatchlistUpdate();
-
-    res.json({
-      success: true,
-      message: "Instrument removed from watchlist"
-    });
-    
-  } catch (error) {
-    console.error("Remove watchlist instrument error:", error);
-    res.status(500).json({
-      error: "Failed to remove instrument from watchlist",
-      details: error.message
-    });
-  }
-});
-
-// Notify all connected users about watchlist changes
-async function notifyWatchlistUpdate() {
-  try {
-    // Update subscriptions for all connected users
-    for (const [userId, socket] of connectedUsers) {
-      const watchlistItems = await getUserWatchlists(userId, socket.userRole);
-      socket.emit('watchlist_updated', watchlistItems);
-      
-      // Update subscriptions
-      await subscribeUserToInstruments(socket, watchlistItems);
-    }
-    
-    await updateActiveSubscriptions();
-    
-  } catch (error) {
-    console.error('[WS] notifyWatchlistUpdate error:', error);
+    console.error('[System] Initialization failed:', error);
   }
 }
+
+// 6. Add a debug endpoint to check current state
+app.get('/debug/watchlist', (req, res) => {
+  res.json({
+    activeWatchlist: activeWatchlist,
+    marketDataCache: marketDataCache,
+    counts: {
+      watchlist: activeWatchlist.length,
+      cache: marketDataCache.length
+    }
+  });
+});
+
+// Start the service - ONLY CALL ONCE
+initialize();
+
 
 async function startServer() {
   try {
@@ -1907,23 +1606,12 @@ startServer();
 // ========================================
 process.on('SIGTERM', () => {
   console.log('[WS] Shutting down gracefully...');
-  stopMarketDataSimulation();
   io.close();
   server.close();
 });
 
 process.on('SIGINT', () => {
   console.log('[WS] Shutting down gracefully...');
-  stopMarketDataSimulation();
   io.close();
   server.close();
 });
-
-// Export WebSocket utilities (if needed)
-module.exports = {
-  io,
-  connectedUsers,
-  activeSubscriptions,
-  broadcastMarketData,
-  notifyWatchlistUpdate
-};
