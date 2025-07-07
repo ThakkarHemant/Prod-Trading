@@ -1,234 +1,9 @@
-/*
 "use client"
 
 import { useState, useEffect, useRef } from "react"
 import { Search } from "../../components/icons"
 import { io } from "socket.io-client"
-
-function UserWatchlist() {
-  const [watchlist, setWatchlist] = useState([])
-  const [searchTerm, setSearchTerm] = useState("")
-  const [realTimeData, setRealTimeData] = useState({})
-  const [connectionStatus, setConnectionStatus] = useState("disconnected")
-  const socketRef = useRef(null)
-
-  // WebSocket URL - change for production
-  const SOCKET_URL = "ws://localhost:3000"
-
-  // Load initial watchlist from Supabase or localStorage
-  useEffect(() => {
-    const loadWatchlist = async () => {
-      try {
-        // Option 1: Load from Supabase (recommended)
-        // const response = await fetch('/api/watchlist')
-        // const data = await response.json()
-        
-        // Option 2: Load from localStorage (current approach)
-        const saved = localStorage.getItem("zerodha_watchlist")
-        const data = saved ? JSON.parse(saved) : []
-        
-        // Format data consistently
-        const formattedData = data.map(item => ({
-          instrument_key: item.instrument_key || item.symbol,
-          symbol: item.instrument_key?.split(':')[1] || item.symbol || 'Unknown',
-          name: item.name || item.instrument_key?.split(':')[1] || 'Unknown',
-          exchange: item.exchange || item.instrument_key?.split(':')[0] || 'NSE'
-        }))
-        
-        setWatchlist(formattedData)
-      } catch (error) {
-        console.error("Error loading watchlist:", error)
-      }
-    }
-    loadWatchlist()
-  }, [])
-
-  // WebSocket connection management
-  useEffect(() => {
-    const userId = localStorage.getItem("id")
-    
-    if (!userId) {
-      console.error("No user ID found");
-      return;
-    }
-
-    const socket = io(SOCKET_URL, {
-      path: "/socket.io",
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      auth: { userId },
-      query: { 
-        clientType: "web",
-        version: "1.0"
-      }
-    });
-
-    // Connection events
-    socket.on("connect", () => {
-      console.log("WS Connected with ID:", socket.id);
-      setConnectionStatus("connected");
-    });
-
-    socket.on("connect_error", (err) => {
-      console.error("WS Connection error:", err.message);
-      setConnectionStatus("error");
-    });
-
-    socket.on("disconnect", (reason) => {
-      console.log("WS Disconnected:", reason);
-      setConnectionStatus("disconnected");
-    });
-
-    // Data handler - Fixed to use instrument_key as the key
-    socket.on("watchlist_update", (data) => {
-      console.log("Received data:", data);
-      setRealTimeData(prev => ({
-        ...prev,
-        ...data.reduce((acc, item) => {
-          acc[item.instrument_key] = item; // Use instrument_key as the key
-          return acc;
-        }, {})
-      }));
-    });
-
-    socketRef.current = socket;
-
-    return () => {
-      if (socket.connected) {
-        socket.disconnect();
-      }
-    };
-  }, []);
-
-  // Update server when watchlist changes
-  useEffect(() => {
-    if (socketRef.current?.connected && watchlist.length > 0) {
-      const instruments = watchlist.map(stock => stock.instrument_key || stock.symbol)
-      socketRef.current.emit("watchlist_subscribe", instruments)
-    }
-  }, [watchlist])
-
-  // Alternative approach: Show all WebSocket data directly without filtering by watchlist
-  const displayStocks = Object.values(realTimeData).map(stock => ({
-    instrument_key: stock.instrument_key,
-    symbol: stock.instrument_key?.split(':')[1] || 'Unknown',
-    name: stock.instrument_key?.split(':')[1] || 'Unknown',
-    exchange: stock.instrument_key?.split(':')[0] || 'Unknown',
-    ltp: stock.last_price ?? 0,
-    change: stock.change_percent ?? 0,
-    high: stock.ohlc?.high ?? 0,
-    low: stock.ohlc?.low ?? 0,
-    volume: stock.volume ?? 0
-  }))
-
-  // Filter stocks based on search term
-  const filteredStocks = displayStocks.filter(stock => {
-    const search = searchTerm.toLowerCase()
-    return (
-      stock.name.toLowerCase().includes(search) ||
-      stock.symbol.toLowerCase().includes(search) ||
-      stock.instrument_key.toLowerCase().includes(search)
-    )
-  })
-
-  const handleTrade = (symbol) => {
-    console.log("Trade initiated for:", symbol)
-    // Implement your trade logic here
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Live Watchlist</h1>
-          <p className="text-gray-500">
-            Connection: <span className={
-              connectionStatus === "connected" ? "text-green-500" : 
-              connectionStatus === "error" ? "text-red-500" : "text-yellow-500"
-            }>
-              {connectionStatus}
-            </span>
-          </p>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Search className="h-4 w-4 text-gray-500" />
-        <input
-          placeholder="Search stocks..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="input max-w-sm"
-        />
-      </div>
-
-      <div className="card">
-        <div className="card-content">
-          {filteredStocks.length > 0 ? (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>LTP</th>
-                  <th>Change</th>
-                  <th>High</th>
-                  <th>Low</th>
-                  <th>Volume</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredStocks.map((stock, index) => (
-                  <tr key={stock.instrument_key || index}>
-                    <td>
-                      <div className="font-medium">{stock.symbol}</div>
-                      <div className="text-sm text-gray-500">{stock.exchange}</div>
-                    </td>
-                    <td>₹{stock.ltp.toFixed(2)}</td>
-                    <td className={
-                      stock.change >= 0 ? "text-green-500" : "text-red-500"
-                    }>
-                      {stock.change >= 0 ? "+" : ""}
-                      {stock.change.toFixed(2)}%
-                    </td>
-                    <td>₹{stock.high.toFixed(2)}</td>
-                    <td>₹{stock.low.toFixed(2)}</td>
-                    <td>{stock.volume.toLocaleString()}</td>
-                    <td>
-                      <button 
-                        onClick={() => handleTrade(stock.instrument_key)}
-                        className="btn btn-sm btn-outline"
-                      >
-                        Trade
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              {connectionStatus === "connected" ? 
-                (searchTerm ? "No matching stocks found" : "Waiting for data...") : 
-                "Connecting to server..."
-              }
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default UserWatchlist
-*/"use client"
-
-import { useState, useEffect, useRef } from "react"
-import { Search } from "../../components/icons"
-import { io } from "socket.io-client"
-
+import { supabase } from "../../../utils/supabase"
 // Trade Modal Component
 const TradeModal = ({ isOpen, onClose, stock, userId, onTradeComplete }) => {
   const [tradeData, setTradeData] = useState({
@@ -253,18 +28,26 @@ const TradeModal = ({ isOpen, onClose, stock, userId, onTradeComplete }) => {
     }
   }, [stock?.ltp, tradeData.quantity]);
 
-  const fetchUserBalance = async () => {
-    try {
-      const response = await fetch(`/api/v2/users/${userId}/balance`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setUserBalance(data.coin_balance);
-      }
-    } catch (error) {
-      console.error('Failed to fetch user balance:', error);
+const fetchUserBalance = async () => {
+  try {
+    // Supabase query to fetch user's coin balance
+    const { data, error } = await supabase
+      .from('users')
+      .select('coins')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      throw error;
     }
-  };
+
+    if (data) {
+      setUserBalance(data.coins);
+    }
+  } catch (error) {
+    console.error('Failed to fetch user balance:', error);
+  }
+};
 
   const handleInputChange = (field, value) => {
     setTradeData(prev => ({
@@ -279,7 +62,7 @@ const TradeModal = ({ isOpen, onClose, stock, userId, onTradeComplete }) => {
     setTradeData(prev => ({ ...prev, loading: true }));
 
     try {
-      const response = await fetch('/api/v2/trades/execute', {
+      const response = await fetch('/api/trades/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -13,6 +13,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.50.2",
     "axios": "^1.6.0",
+    "bcryptjs": "^3.0.2",
     "cookie-parser": "^1.4.7",
     "lucide-react": "^0.263.1",
     "react": "^18.3.1",

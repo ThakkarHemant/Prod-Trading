@@ -434,6 +434,7 @@ app.post("/api/auth/session", async (req, res) => {
         message: "Test authentication successful",
       });
     }
+    
 
     const checksum = generateChecksum(ZERODHA_API_KEY, request_token, ZERODHA_API_SECRET);
 
@@ -1461,78 +1462,7 @@ app.get("/api/trades/history", async (req, res) => {
   }
 });
 
-
-// Portfolio Summary Endpoint
-app.get("/api/trades/portfolio", async (req, res) => {
-  try {
-    const currentAccessToken = getAccessTokenFromRequest(req);
-    if (!currentAccessToken) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-
-    // Get all trades for user
-    const { data: trades, error } = await supabase
-      .from('trades')
-      .select('instrument_key, action, quantity, price')
-      .eq('user_id', userProfile.user_id);
-
-    if (error) throw error;
-
-    // Calculate portfolio positions
-    const portfolio = trades.reduce((acc, trade) => {
-      if (!acc[trade.instrument_key]) {
-        acc[trade.instrument_key] = {
-          quantity: 0,
-          total_investment: 0,
-          average_price: 0
-        };
-      }
-
-      const multiplier = trade.action === 'buy' ? 1 : -1;
-      acc[trade.instrument_key].quantity += multiplier * trade.quantity;
-      acc[trade.instrument_key].total_investment += multiplier * trade.quantity * trade.price;
-      
-      if (acc[trade.instrument_key].quantity !== 0) {
-        acc[trade.instrument_key].average_price = 
-          acc[trade.instrument_key].total_investment / acc[trade.instrument_key].quantity;
-      }
-
-      return acc;
-    }, {});
-
-    // Filter out zero-quantity positions and add current market data
-    const positions = await Promise.all(
-      Object.entries(portfolio)
-        .filter(([_, pos]) => pos.quantity > 0)
-        .map(async ([instrument_key, position]) => {
-          const current_price = await getCurrentMarketPrice(instrument_key, currentAccessToken);
-          return {
-            instrument_key,
-            ...position,
-            current_price,
-            current_value: position.quantity * current_price,
-            pnl: (current_price - position.average_price) * position.quantity
-          };
-        })
-    );
-
-    res.json({
-      success: true,
-      positions
-    });
-
-  } catch (error) {
-    console.error("Portfolio error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch portfolio"
-    });
-  }
-});
-
-
-
-// New Portfolio Summary Endpoint (No Zerodha Auth Required)
+// Portfolio Summary Endpoint 
 app.get("/api/v2/trades/portfolio/:user_id", async (req, res) => {
   try {
     const { user_id } = req.params;
@@ -1602,7 +1532,7 @@ app.get("/api/v2/trades/portfolio/:user_id", async (req, res) => {
     const positions = Object.entries(portfolio)
       .filter(([_, pos]) => pos.quantity > 0)
       .map(([instrument_key, position]) => {
-        const current_price = getMockMarketPrice(instrument_key);
+        const current_price = getRealMarketPrice(instrument_key);
         const current_value = position.quantity * current_price;
         const pnl = (current_price - position.average_price) * position.quantity;
         const pnl_percent = position.average_price > 0 ? 
@@ -1653,86 +1583,7 @@ app.get("/api/v2/trades/portfolio/:user_id", async (req, res) => {
   }
 });
 
-// New Trade History Endpoint (No Zerodha Auth Required)
-app.get("/api/v2/trades/history/:user_id", async (req, res) => {
-  try {
-    const { user_id } = req.params;
-    const { limit = 50, offset = 0 } = req.query;
 
-    if (!user_id) {
-      return res.status(400).json({
-        success: false,
-        error: "User ID is required"
-      });
-    }
-
-    // Verify user exists
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('id, role')
-      .eq('id', user_id)
-      .single();
-
-    if (userError || !user) {
-      return res.status(404).json({
-        success: false,
-        error: "User not found"
-      });
-    }
-
-    // Get trades with pagination
-    let query = supabase
-      .from('trades')
-      .select(`
-        trade_id,
-        instrument_key,
-        user_id,
-        action,
-        quantity,
-        price,
-        timestamp,
-        status
-      `)
-      .eq('user_id', user_id)
-      .order('timestamp', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    const { data: trades, error } = await query;
-
-    if (error) {
-      console.error("Error fetching trade history:", error);
-      return res.status(500).json({
-        success: false,
-        error: "Failed to fetch trade history"
-      });
-    }
-
-    // Add calculated fields to each trade
-    const enhancedTrades = trades.map(trade => ({
-      ...trade,
-      total_value: trade.quantity * trade.price,
-      formatted_timestamp: new Date(trade.timestamp).toLocaleString()
-    }));
-
-    res.json({
-      success: true,
-      trades: enhancedTrades,
-      pagination: {
-        limit: parseInt(limit),
-        offset: parseInt(offset),
-        total: enhancedTrades.length
-      }
-    });
-
-  } catch (error) {
-    console.error("Trade history error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch trade history",
-      details: error.message
-    });
-  }
-});
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -1791,6 +1642,7 @@ app.use("*", (req, res) => {
       "GET /api/zerodha/callback",
       "POST /api/trades/execute",
       "GET /api/trades/history",
+      "GET /api/v2/trades/portfolio/:user_id",
     ],
   })
 })
@@ -1803,8 +1655,8 @@ const io = socketIo(server, {
     credentials: true,
     methods: ["GET", "POST"]
   },
-  path: "/socket.io", // Explicit path
-  transports: ["websocket", "polling"] // Enable both transports
+  path: "/socket.io", 
+  transports: ["websocket", "polling"]
 });
 
 // WebSocket connection management
@@ -1870,7 +1722,7 @@ async function refreshWatchlist() {
     
     // Clear previous data
     activeWatchlist = [];
-    marketDataCache = []; // Clear market data too
+    marketDataCache = []; 
     
     if (data && data.length > 0) {
       activeWatchlist = data.map(item => item.instrument_key);
@@ -1889,7 +1741,6 @@ async function refreshWatchlist() {
   }
 }
 
-// 2. Fixed updateMarketData - only fetch data for current watchlist
 async function updateMarketData() {
   if (!accessToken) {
     console.log('[Market] No access token');
@@ -1898,16 +1749,15 @@ async function updateMarketData() {
 
   if (!activeWatchlist || activeWatchlist.length === 0) {
     console.log('[Market] Empty watchlist - no data to fetch');
-    marketDataCache = []; // Clear cache when no watchlist
+    marketDataCache = []; 
     return;
   }
 
   try {
     console.log('[Market] Fetching data for:', activeWatchlist.length, 'instruments:', activeWatchlist);
     
-    // Using your existing quote API endpoint
     const response = await axios.post('http://localhost:3000/api/quote', {
-      instruments: activeWatchlist // Only send current watchlist
+      instruments: activeWatchlist 
     }, {
       headers: {
         'Cookie': `zerodha_session=${JSON.stringify({ access_token: accessToken })}`
@@ -1916,10 +1766,8 @@ async function updateMarketData() {
 
     const quoteData = response.data.data;
     
-    // Clear cache and rebuild with only current watchlist data
     marketDataCache = [];
     
-    // Only process instruments that are in our current watchlist
     activeWatchlist.forEach(instrumentKey => {
       if (quoteData[instrumentKey]) {
         marketDataCache.push({
@@ -1932,38 +1780,36 @@ async function updateMarketData() {
       }
     });
 
-    console.log('[Market] Processed:', marketDataCache.length, 'instruments (expected:', activeWatchlist.length, ')');
+    //console.log('[Market] Processed:', marketDataCache.length, 'instruments (expected:', activeWatchlist.length, ')');
     
-    // Debug: Log what we're caching
-    console.log('[Market] Cache contents:', marketDataCache.map(item => item.instrument_key));
+    //console.log('[Market] Cache contents:', marketDataCache.map(item => item.instrument_key));
     
   } catch (error) {
     console.error('[Market] Update failed:', {
       message: error.message,
       response: error.response?.data
     });
-    // On error, clear the cache to avoid stale data
     marketDataCache = [];
   }
 }
 
 // 3. Fixed broadcast function
 function broadcastData() {
-  console.log('[Broadcast] Checking data to send...');
+  //console.log('[Broadcast] Checking data to send...');
   
   if (marketDataCache.length === 0) {
-    console.log('[Broadcast] No data available to send');
+    //console.log('[Broadcast] No data available to send');
     return;
   }
 
   const clientCount = io.engine?.clientsCount || 0;
-  console.log(`[Broadcast] Sending ${marketDataCache.length} instruments to ${clientCount} clients`);
+  //console.log(`[Broadcast] Sending ${marketDataCache.length} instruments to ${clientCount} clients`);
   
   // Debug: Log exactly what we're sending
-  console.log('[Broadcast] Sending instruments:', marketDataCache.map(item => item.instrument_key));
+  //console.log('[Broadcast] Sending instruments:', marketDataCache.map(item => item.instrument_key));
 
   io.emit("watchlist_update", marketDataCache);
-  console.log('[Broadcast] Data sent to clients');
+  //console.log('[Broadcast] Data sent to clients');
 }
 
 // 4. Socket connections with enhanced logging
@@ -1988,27 +1834,20 @@ io.on("connection", (socket) => {
     console.log(`[WS] Client disconnected: ${socket.id}`, { reason });
   });
 
-  socket.on("ping", (cb) => {
-    console.log(`[WS] Ping received from ${socket.id}`);
-    if (typeof cb === 'function') cb();
-  });
+
 });
 
-// 5. Clean initialization - only call once
 async function initialize() {
   try {
     console.log('[System] Starting initialization...');
     
-    // Step 1: Load watchlist from Supabase
     await refreshWatchlist();
     
-    // Step 2: Get market data for watchlist
     await updateMarketData();
     
-    // Step 3: Send initial broadcast
     broadcastData();
     
-    // Step 4: Set up intervals
+    //  Set up intervals
     console.log('[System] Setting up intervals...');
     setInterval(async () => {
       console.log('[System] Refreshing watchlist...');

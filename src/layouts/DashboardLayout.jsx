@@ -19,13 +19,13 @@ function DashboardLayout({ children }) {
     const storedUser = localStorage.getItem("currentUser")
     return storedUser ? JSON.parse(storedUser) : null
   })
-
+  const name = localStorage.getItem("name") 
   const [isSidebarOpen, setSidebarOpen] = useState(true)
   const navigate = useNavigate()
   const location = useLocation()
   const pathname = location.pathname
 
-  const nameSource = user?.name || user?.id || "User"
+  const nameSource = name || user?.name || user?.id || "User"
   const firstInitial = nameSource.charAt(0).toUpperCase()
 
   useEffect(() => {
@@ -60,7 +60,6 @@ function DashboardLayout({ children }) {
     { title: "Trades", icon: Activity, path: "/user/trades" },
     { title: "Portfolio", icon: LineChart, path: "/user/portfolio" },
     { title: "Deposit/Withdraw", icon: CreditCard, path: "/user/transactions" },
-    { title: "Settings", icon: Settings, path: "/user/settings" },
   ]
 
   const menuItems = user?.role === "admin" ? adminMenuItems : userMenuItems

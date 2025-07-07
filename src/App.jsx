@@ -12,7 +12,7 @@ import AdminTransactions from "./pages/admin/Transactions.jsx";
 import AdminSettings from "./pages/admin/Settings.jsx";
 import UserWatchlist from "./pages/user/Watchlist.jsx";
 import UserPortfolio from "./pages/user/Portfolio.jsx";
-import UserSettings from "./pages/user/Settings.jsx";
+//import UserSettings from "./pages/user/Settings.jsx";
 import UserTrades from "./pages/user/Trades.jsx";
 import UserTransactions from "./pages/user/Transactions.jsx";
 import  supabase  from "../utils/supabase.js";
@@ -59,7 +59,6 @@ function App() {
             <Route path="portfolio" element={<UserPortfolio />} />
             <Route path="trades" element={<UserTrades />} />
             <Route path="transactions" element={<UserTransactions />} />
-            <Route path="settings" element={<UserSettings />} />
           </Route>
         </Routes>
       </div>

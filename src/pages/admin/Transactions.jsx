@@ -1,362 +1,4 @@
-/*
-"use client"
-import { useState, useEffect } from "react"
-import { ArrowDown, ArrowUp, Search } from "../../components/icons"
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "../../components/ui/Select"
-import { supabase } from "../../../utils/supabase"
-import { toast } from "sonner"
-import { Button } from "../../components/ui/Button"
 
-export default function AdminTransactions() {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [typeFilter, setTypeFilter] = useState("all")
-  const [transactions, setTransactions] = useState([])
-  const [users, setUsers] = useState({})
-  const [isLoading, setIsLoading] = useState(true)
-  const [isUpdating, setIsUpdating] = useState(false)
-
-  // Format date for display
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleString()
-  }
-
-  // Fetch transactions and user data
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true)
-      
-      try {
-        // Get all transactions with user data (only available columns)
-        const { data: txData, error: txError } = await supabase
-          .from('transactions')
-          .select('*, user:user_id(id, role, coins)')
-          .order('created_at', { ascending: false })
-        
-        if (txError) throw txError
-        
-        // Create users map for quick lookup
-        const usersMap = {}
-        txData?.forEach(tx => {
-          if (tx.user) {
-            usersMap[tx.user.id] = tx.user
-          }
-        })
-        
-        setTransactions(txData || [])
-        setUsers(usersMap)
-      } catch (error) {
-        console.error("Error fetching transactions:", error)
-        toast.error("Failed to load transactions")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-    
-    fetchData()
-    
-    // Set up realtime subscription
-    const channel = supabase
-      .channel('admin_transactions')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'transactions'
-      }, async (payload) => {
-        // Handle realtime updates
-        if (payload.eventType === 'INSERT') {
-          // Fetch user data for new transaction
-          if (payload.new.user_id) {
-            const { data: userData } = await supabase
-              .from('users')
-              .select('id, role, coins')
-              .eq('id', payload.new.user_id)
-              .single()
-            
-            if (userData) {
-              setUsers(prev => ({
-                ...prev,
-                [payload.new.user_id]: userData
-              }))
-              
-              setTransactions(prev => [{
-                ...payload.new,
-                user: userData
-              }, ...prev])
-            }
-          }
-        } else if (payload.eventType === 'UPDATE') {
-          setTransactions(prev => prev.map(tx => 
-            tx.id === payload.new.id ? {
-              ...payload.new,
-              user: tx.user // Keep existing user data
-            } : tx
-          ))
-        } else if (payload.eventType === 'DELETE') {
-          setTransactions(prev => prev.filter(tx => tx.id !== payload.old.id))
-        }
-      })
-      .subscribe()
-    
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [])
-
-  const filteredTransactions = transactions.filter((tx) => {
-    const user = tx.user || {}
-    const matchesSearch =
-      (user.role?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tx.user_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tx.id.toLowerCase().includes(searchTerm.toLowerCase()))
-    const matchesStatus = statusFilter === "all" || tx.status.toLowerCase() === statusFilter.toLowerCase()
-    const matchesType = typeFilter === "all" || tx.type.toLowerCase() === typeFilter.toLowerCase()
-    return matchesSearch && matchesStatus && matchesType
-  })
-
-  const deposits = transactions.filter(t => t.type === 'DEPOSIT' && t.status === 'COMPLETE')
-  const withdrawals = transactions.filter(t => t.type === 'WITHDRAW' && t.status === 'COMPLETE')
-  const pendingTransactions = transactions.filter(t => t.status === 'PENDING')
-  const totalDeposits = deposits.reduce((sum, t) => sum + t.amount, 0)
-  const totalWithdrawals = withdrawals.reduce((sum, t) => sum + t.amount, 0)
-  const pendingAmount = pendingTransactions.reduce((sum, t) => sum + t.amount, 0)
-
-  const handleStatusChange = async (id, newStatus) => {
-    setIsUpdating(true)
-    try {
-      // Update transaction status
-      const { error } = await supabase
-        .from('transactions')
-        .update({ 
-          status: newStatus.toUpperCase(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id)
-      
-      if (error) throw error
-      
-      // If status changed to COMPLETE, update user's coin balance
-      if (newStatus === 'complete') {
-        const tx = transactions.find(t => t.id === id)
-        if (tx && tx.user_id) {
-          // Get current user coins
-          const { data: userData } = await supabase
-            .from('users')
-            .select('coins')
-            .eq('id', tx.user_id)
-            .single()
-          
-          const currentCoins = userData?.coins || 0
-          const newCoins = tx.type === 'DEPOSIT' 
-            ? currentCoins + tx.amount 
-            : currentCoins - tx.amount
-            
-          // Update user coins
-          await supabase
-            .from('users')
-            .update({ coins: newCoins })
-            .eq('id', tx.user_id)
-        }
-      }
-      
-      toast.success(`Transaction ${id.substring(0, 8)} status updated to ${newStatus}`)
-    } catch (error) {
-      console.error("Error updating transaction:", error)
-      toast.error("Failed to update transaction status")
-    } finally {
-      setIsUpdating(false)
-    }
-  }
-
-
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Coin Transactions</h1>
-        <p className="text-gray-500">Manage all user coin transactions</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="card">
-          <div className="card-header flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="card-title text-sm font-medium">Total Deposits</h3>
-            <ArrowUp className="h-4 w-4 text-emerald-500" />
-          </div>
-          <div className="card-content">
-            <div className="text-2xl font-bold">🪙 {totalDeposits.toFixed(2)}</div>
-            <p className="text-xs text-gray-500">Completed deposits</p>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="card-title text-sm font-medium">Total Withdrawals</h3>
-            <ArrowDown className="h-4 w-4 text-red-500" />
-          </div>
-          <div className="card-content">
-            <div className="text-2xl font-bold">🪙 {totalWithdrawals.toFixed(2)}</div>
-            <p className="text-xs text-gray-500">Completed withdrawals</p>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="card-title text-sm font-medium">Pending Transactions</h3>
-          </div>
-          <div className="card-content">
-            <div className="text-2xl font-bold">{pendingTransactions.length}</div>
-            <p className="text-xs text-gray-500">Awaiting approval</p>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header flex flex-row items-center justify-between space-y-0 pb-2">
-            <h3 className="card-title text-sm font-medium">Pending Amount</h3>
-          </div>
-          <div className="card-content">
-            <div className="text-2xl font-bold">🪙 {pendingAmount.toFixed(2)}</div>
-            <p className="text-xs text-gray-500">In pending transactions</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-gray-500" />
-            <input
-              placeholder="Search by user ID, role or TX ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input w-full sm:w-[250px]"
-            />
-          </div>
-          <div className="flex gap-2">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="complete">Complete</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-[130px]">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="deposit">Deposit</SelectItem>
-                <SelectItem value="withdraw">Withdraw</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="table-container">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>TX ID</th>
-                <th>User</th>
-                <th>Type</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTransactions.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="text-center py-4">
-                    No transactions found
-                  </td>
-                </tr>
-              ) : (
-                filteredTransactions.map((tx) => {
-                  const user = tx.user || {}
-                  return (
-                    <tr key={tx.id}>
-                      <td className="font-mono text-sm">{tx.id.substring(0, 8)}...</td>
-                      <td>
-                        <div className="flex flex-col">
-                          <span className="font-medium">User ID: {user.id || 'Unknown'}</span>
-                          <span className="text-xs text-gray-500">Role: {user.role || 'N/A'}</span>
-                          <span className="text-xs text-gray-500">Coins: {user.coins || 0}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            tx.type === 'DEPOSIT' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {tx.type}
-                        </span>
-                      </td>
-                      <td>🪙 {tx.amount.toFixed(2)}</td>
-                      <td>
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            tx.status === 'COMPLETE'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : tx.status === 'PENDING'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {tx.status}
-                        </span>
-                      </td>
-                      <td className="text-sm">{formatDate(tx.created_at)}</td>
-                      <td>
-                        {tx.status === 'PENDING' && (
-                          <div className="flex space-x-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatusChange(tx.id, 'complete')}
-                              disabled={isUpdating}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-500 border-red-200 hover:bg-red-50"
-                              onClick={() => handleStatusChange(tx.id, 'cancelled')}
-                              disabled={isUpdating}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
-}
-*/
 "use client"
 import { useState, useEffect } from "react"
 import { ArrowDown, ArrowUp, Search, RefreshCw } from "../../components/icons"
@@ -489,11 +131,12 @@ export default function AdminTransactions() {
     return matchesSearch && matchesStatus && matchesType
   })
 
-  const deposits = transactions.filter(t => t.type === 'DEPOSIT' && t.status === 'COMPLETE')
-  const withdrawals = transactions.filter(t => t.type === 'WITHDRAW' && t.status === 'COMPLETE')
+  // Fix the deposits and withdrawals calculation with proper case handling
+  const deposits = transactions.filter(t => t.type?.toUpperCase() === 'DEPOSIT' && t.status?.toUpperCase() === 'COMPLETE')
+  const withdrawals = transactions.filter(t => t.type?.toUpperCase() === 'WITHDRAW' && t.status?.toUpperCase() === 'COMPLETE')
   const pendingTransactions = transactions.filter(t => t.status === 'PENDING')
-  const totalDeposits = deposits.reduce((sum, t) => sum + t.amount, 0)
-  const totalWithdrawals = withdrawals.reduce((sum, t) => sum + t.amount, 0)
+  const totalDeposits = deposits.reduce((sum, t) => sum + (t.amount || 0), 0)
+  const totalWithdrawals = withdrawals.reduce((sum, t) => sum + (t.amount || 0), 0)
   const pendingAmount = pendingTransactions.reduce((sum, t) => sum + t.amount, 0)
 
   const handleStatusChange = async (id, newStatus) => {
@@ -589,7 +232,7 @@ export default function AdminTransactions() {
             <ArrowUp className="h-4 w-4 text-emerald-500" />
           </div>
           <div className="card-content">
-            <div className="text-2xl font-bold">🪙 {totalDeposits.toFixed(2)}</div>
+            <div className="text-2xl font-bold">🪙 {totalDeposits.toLocaleString()}</div>
             <p className="text-xs text-gray-500">Completed deposits</p>
           </div>
         </div>
@@ -600,7 +243,7 @@ export default function AdminTransactions() {
             <ArrowDown className="h-4 w-4 text-red-500" />
           </div>
           <div className="card-content">
-            <div className="text-2xl font-bold">🪙 {totalWithdrawals.toFixed(2)}</div>
+            <div className="text-2xl font-bold">🪙 {totalWithdrawals.toLocaleString()}</div>
             <p className="text-xs text-gray-500">Completed withdrawals</p>
           </div>
         </div>
@@ -620,7 +263,7 @@ export default function AdminTransactions() {
             <h3 className="card-title text-sm font-medium">Pending Amount</h3>
           </div>
           <div className="card-content">
-            <div className="text-2xl font-bold">🪙 {pendingAmount.toFixed(2)}</div>
+            <div className="text-2xl font-bold">🪙 {pendingAmount.toLocaleString()}</div>
             <p className="text-xs text-gray-500">In pending transactions</p>
           </div>
         </div>
@@ -692,7 +335,7 @@ export default function AdminTransactions() {
                         <div className="flex flex-col">
                           <span className="font-medium">User ID: {user.id || 'Unknown'}</span>
                           <span className="text-xs text-gray-500">Role: {user.role || 'N/A'}</span>
-                          <span className="text-xs text-gray-500">Coins: {user.coins || 0}</span>
+                          <span className="text-xs text-gray-500">Coins: {(user.coins || 0).toLocaleString()}</span>
                         </div>
                       </td>
                       <td>
@@ -704,7 +347,7 @@ export default function AdminTransactions() {
                           {tx.type}
                         </span>
                       </td>
-                      <td>🪙 {tx.amount.toFixed(2)}</td>
+                      <td>🪙 {tx.amount.toLocaleString()}</td>
                       <td>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -724,20 +367,19 @@ export default function AdminTransactions() {
                           <div className="flex space-x-2">
                             <Button
                               size="sm"
-                              variant="outline"
                               onClick={() => handleStatusChange(tx.id, 'complete')}
                               disabled={isUpdating}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-500 px-4 py-1.5 text-sm font-medium"
                             >
-                              Approve
+                              ✓ Approve
                             </Button>
                             <Button
                               size="sm"
-                              variant="outline"
-                              className="text-red-500 border-red-200 hover:bg-red-50"
                               onClick={() => handleStatusChange(tx.id, 'cancelled')}
                               disabled={isUpdating}
+                              className="bg-red-500 hover:bg-red-600 text-white border-red-500 px-4 py-1.5 text-sm font-medium"
                             >
-                              Reject
+                              ✕ Reject
                             </Button>
                           </div>
                         )}
