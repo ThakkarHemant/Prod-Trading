@@ -34,7 +34,7 @@ const QUOTE_CACHE_DURATION = 30 * 1000; // 30 seconds
 // Middleware
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:5173"],
+    origin: ["http://localhost:3000", "http://localhost:5173", "https://trading-lemon-xi.vercel.app"],
     credentials: true,
   }),
 );
@@ -1651,7 +1651,7 @@ app.use("*", (req, res) => {
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:5173"],
+    origin: ["http://localhost:3000", "http://localhost:5173", "https://trading-lemon-xi.vercel.app"],
     credentials: true,
     methods: ["GET", "POST"]
   },
@@ -1756,7 +1756,7 @@ async function updateMarketData() {
   try {
     console.log('[Market] Fetching data for:', activeWatchlist.length, 'instruments:', activeWatchlist);
     
-    const response = await axios.post('http://localhost:3000/api/quote', {
+    const response = await axios.post('https://trading-lemon-xi.vercel.app/api/quote', {
       instruments: activeWatchlist 
     }, {
       headers: {
