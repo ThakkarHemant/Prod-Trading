@@ -16,9 +16,7 @@ function UserPortfolio() {
   // const SOCKET_URL = "ws://localhost:3000"
 
   // WebSocket URL - automatically detects environment
-const SOCKET_URL = import.meta.env.PROD 
-  ? "https://prod-trading.onrender.com"  // Your actual backend URL
-  : "http://localhost:3000";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3000";
 
 console.log('Socket URL:', SOCKET_URL);
 console.log('Environment:', import.meta.env.PROD ? 'Production' : 'Development');

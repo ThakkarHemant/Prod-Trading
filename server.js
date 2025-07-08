@@ -41,7 +41,7 @@ const QUOTE_CACHE_DURATION = 30 * 1000; // 30 seconds
 // Middleware
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:5173"],
+    origin: ["http://localhost:3000", "http://localhost:5173", "https://prod-trading.onrender.com"],
     credentials: true,
   }),
 );
