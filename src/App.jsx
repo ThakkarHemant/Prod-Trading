@@ -22,7 +22,7 @@ function App() {
   return (
     <Router>
       <div className="min-h-screen bg-gray-100">
-        <nav className="bg-white shadow-lg">
+        {/* <nav className="bg-white shadow-lg">
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex justify-between h-16">
               <div className="flex items-center">
@@ -33,11 +33,11 @@ function App() {
               </div>
             </div>
           </div>
-        </nav>
+        </nav> */}
 
 <Routes>
           {/* Public Routes */}
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<LoginPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/watchlist" element={<LiveWatchlist />} />
           <Route path="/zerodha-callback" element={<ZerodhaCallback />} />

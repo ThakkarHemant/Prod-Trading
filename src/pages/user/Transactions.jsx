@@ -1252,10 +1252,8 @@ export default function UserTransactions() {
 */
 
 "use client"
-
 import { useState, useEffect } from "react"
 import { ArrowDown, ArrowUp } from "../../components/icons"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/Tabs"
 import {
   Dialog,
   DialogTrigger,
@@ -1280,16 +1278,16 @@ export default function UserTransactions() {
   // Format date for display
   const formatDate = (dateString) => {
     try {
-      return new Date(dateString).toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+      return new Date(dateString).toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
       })
     } catch (error) {
-      console.error('Date formatting error:', error)
-      return 'Invalid Date'
+      console.error("Date formatting error:", error)
+      return "Invalid Date"
     }
   }
 
@@ -1311,13 +1309,13 @@ export default function UserTransactions() {
   }, [])
 
   const handleTransactionUpdate = (transaction) => {
-    setTransactions(prevTransactions => {
+    setTransactions((prevTransactions) => {
       // Ensure prevTransactions is an array
       const currentTransactions = Array.isArray(prevTransactions) ? prevTransactions : []
-      
+
       // Check if transaction already exists
-      const existingIndex = currentTransactions.findIndex(t => t.id === transaction.id)
-      
+      const existingIndex = currentTransactions.findIndex((t) => t.id === transaction.id)
+
       if (existingIndex >= 0) {
         // Update existing transaction
         const updated = [...currentTransactions]
@@ -1330,10 +1328,8 @@ export default function UserTransactions() {
     })
 
     // Show toast notification if transaction was completed
-    if (transaction.status === 'COMPLETE') {
-      toast.success(
-        `Transaction ${transaction.type.toLowerCase()} of 🪙${transaction.amount.toFixed(2)} completed`
-      )
+    if (transaction.status === "COMPLETE") {
+      toast.success(`Transaction ${transaction.type.toLowerCase()} of 🪙${transaction.amount.toFixed(2)} completed`)
     }
   }
 
@@ -1344,17 +1340,14 @@ export default function UserTransactions() {
         console.log("No userId available, skipping fetch")
         return
       }
-      
+
       console.log("Fetching data for user ID:", userId)
       setIsLoading(true)
-      
+
       try {
         // Test Supabase connection first
-        const { data: testData, error: testError } = await supabase
-          .from('users')
-          .select('id')
-          .limit(1)
-        
+        const { data: testData, error: testError } = await supabase.from("users").select("id").limit(1)
+
         if (testError) {
           console.error("Supabase connection test failed:", testError)
           throw new Error(`Database connection failed: ${testError.message}`)
@@ -1365,35 +1358,35 @@ export default function UserTransactions() {
         // Get user coins balance
         console.log("Fetching user coins for ID:", userId)
         const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('coins')
-          .eq('id', userId)
+          .from("users")
+          .select("coins")
+          .eq("id", userId)
           .single()
-        
+
         if (userError) {
           console.error("Error fetching user data:", userError)
-          if (userError.code === 'PGRST116') {
+          if (userError.code === "PGRST116") {
             throw new Error(`User with ID ${userId} not found in database`)
           }
           throw new Error(`Failed to fetch user data: ${userError.message}`)
         }
-        
+
         console.log("User data fetched:", userData)
         setUserCoins(userData?.coins || 0)
-        
+
         // Get user transactions
         console.log("Fetching transactions for user ID:", userId)
         const { data: txData, error: txError } = await supabase
-          .from('transactions')
-          .select('*')
-          .eq('user_id', userId)
-          .order('created_at', { ascending: false })
-        
+          .from("transactions")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+
         if (txError) {
           console.error("Error fetching transactions:", txError)
           throw new Error(`Failed to fetch transactions: ${txError.message}`)
         }
-        
+
         console.log("Transactions fetched:", txData)
         // Ensure txData is an array
         setTransactions(Array.isArray(txData) ? txData : [])
@@ -1407,49 +1400,47 @@ export default function UserTransactions() {
         setIsLoading(false)
       }
     }
-    
+
     fetchData()
-    
+
     // Set up realtime subscription for transactions
     if (userId) {
       console.log("Setting up realtime subscription for user:", userId)
       const channel = supabase
-        .channel('user_transactions')
-        .on('postgres_changes', {
-          event: '*',
-          schema: 'public',
-          table: 'transactions',
-          filter: `user_id=eq.${userId}`
-        }, async (payload) => {
-          console.log("Realtime transaction update:", payload)
-          // Update transactions when changes occur
-          if (payload.eventType === 'INSERT') {
-            setTransactions(prev => {
-              const currentTransactions = Array.isArray(prev) ? prev : []
-              return [payload.new, ...currentTransactions]
-            })
-          } else if (payload.eventType === 'UPDATE') {
-            setTransactions(prev => {
-              const currentTransactions = Array.isArray(prev) ? prev : []
-              return currentTransactions.map(tx => 
-                tx.id === payload.new.id ? payload.new : tx
-              )
-            })
-            
-            // Update balance if transaction was completed
-            if (payload.new.status === 'COMPLETE') {
-              const { data: userData } = await supabase
-                .from('users')
-                .select('coins')
-                .eq('id', userId)
-                .single()
-              
-              setUserCoins(userData?.coins || 0)
+        .channel("user_transactions")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "transactions",
+            filter: `user_id=eq.${userId}`,
+          },
+          async (payload) => {
+            console.log("Realtime transaction update:", payload)
+            // Update transactions when changes occur
+            if (payload.eventType === "INSERT") {
+              setTransactions((prev) => {
+                const currentTransactions = Array.isArray(prev) ? prev : []
+                return [payload.new, ...currentTransactions]
+              })
+            } else if (payload.eventType === "UPDATE") {
+              setTransactions((prev) => {
+                const currentTransactions = Array.isArray(prev) ? prev : []
+                return currentTransactions.map((tx) => (tx.id === payload.new.id ? payload.new : tx))
+              })
+
+              // Update balance if transaction was completed
+              if (payload.new.status === "COMPLETE") {
+                const { data: userData } = await supabase.from("users").select("coins").eq("id", userId).single()
+
+                setUserCoins(userData?.coins || 0)
+              }
             }
-          }
-        })
+          },
+        )
         .subscribe()
-      
+
       return () => {
         console.log("Cleaning up realtime subscription")
         supabase.removeChannel(channel)
@@ -1459,10 +1450,10 @@ export default function UserTransactions() {
 
   // Ensure transactions is always an array before filtering
   const safeTransactions = Array.isArray(transactions) ? transactions : []
-  
-  const deposits = safeTransactions.filter(t => t?.type === 'DEPOSIT' && t?.status === 'COMPLETE')
-  const withdrawals = safeTransactions.filter(t => t?.type === 'WITHDRAW' && t?.status === 'COMPLETE')
-  const pendingTransactions = safeTransactions.filter(t => t?.status === 'PENDING')
+
+  const deposits = safeTransactions.filter((t) => t?.type === "DEPOSIT" && t?.status === "COMPLETE")
+  const withdrawals = safeTransactions.filter((t) => t?.type === "WITHDRAW" && t?.status === "COMPLETE")
+  const pendingTransactions = safeTransactions.filter((t) => t?.status === "PENDING")
 
   const totalDeposits = deposits.reduce((sum, t) => sum + (t?.amount || 0), 0)
   const totalWithdrawals = withdrawals.reduce((sum, t) => sum + (t?.amount || 0), 0)
@@ -1480,29 +1471,31 @@ export default function UserTransactions() {
     }
 
     const depositAmount = Number(amount)
-    
+
     try {
       console.log("Creating deposit transaction:", { userId, amount: depositAmount })
       const { data, error } = await supabase
-        .from('transactions')
-        .insert([{
-          user_id: userId,
-          type: 'DEPOSIT',
-          amount: depositAmount,
-          status: 'PENDING'
-        }])
+        .from("transactions")
+        .insert([
+          {
+            user_id: userId,
+            type: "DEPOSIT",
+            amount: depositAmount,
+            status: "PENDING",
+          },
+        ])
         .select()
-      
+
       if (error) {
         console.error("Deposit creation error:", error)
         throw error
       }
-      
+
       console.log("Deposit created successfully:", data)
       setAmount("")
       setIsDepositOpen(false)
       toast.success("Deposit request submitted for approval")
-      
+
       // Refresh the page after successful deposit
       setTimeout(() => {
         window.location.reload()
@@ -1525,7 +1518,7 @@ export default function UserTransactions() {
     }
 
     const withdrawAmount = Number(amount)
-    
+
     if (withdrawAmount > balance) {
       toast.error("Insufficient balance")
       return
@@ -1534,25 +1527,27 @@ export default function UserTransactions() {
     try {
       console.log("Creating withdrawal transaction:", { userId, amount: withdrawAmount })
       const { data, error } = await supabase
-        .from('transactions')
-        .insert([{
-          user_id: userId,
-          type: 'WITHDRAW',
-          amount: withdrawAmount,
-          status: 'PENDING'
-        }])
+        .from("transactions")
+        .insert([
+          {
+            user_id: userId,
+            type: "WITHDRAW",
+            amount: withdrawAmount,
+            status: "PENDING",
+          },
+        ])
         .select()
-      
+
       if (error) {
         console.error("Withdrawal creation error:", error)
         throw error
       }
-      
+
       console.log("Withdrawal created successfully:", data)
       setAmount("")
       setIsWithdrawOpen(false)
       toast.success("Withdrawal request submitted for approval")
-      
+
       // Refresh the page after successful withdrawal
       setTimeout(() => {
         window.location.reload()
@@ -1601,9 +1596,7 @@ export default function UserTransactions() {
             <DialogContent className="sm:max-w-[500px] mx-4">
               <DialogHeader>
                 <DialogTitle className="text-2xl font-bold text-center">Deposit Coins</DialogTitle>
-                <DialogDescription className="text-center text-gray-600">
-                  Add coins to your account
-                </DialogDescription>
+                <DialogDescription className="text-center text-gray-600">Add coins to your account</DialogDescription>
               </DialogHeader>
               <div className="py-6">
                 <div className="space-y-4">
@@ -1628,8 +1621,8 @@ export default function UserTransactions() {
                 </div>
               </div>
               <DialogFooter className="justify-center">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
                   onClick={handleDeposit}
                 >
@@ -1673,15 +1666,13 @@ export default function UserTransactions() {
                         step="0.01"
                       />
                     </div>
-                    <div className="mt-3 text-sm text-gray-600">
-                      Available Balance: 🪙 {balance.toFixed(2)}
-                    </div>
+                    <div className="mt-3 text-sm text-gray-600">Available Balance: 🪙 {balance.toFixed(2)}</div>
                   </div>
                 </div>
               </div>
               <DialogFooter className="justify-center">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="px-8 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
                   onClick={handleWithdraw}
                 >
@@ -1704,6 +1695,7 @@ export default function UserTransactions() {
             <p className="text-xs text-gray-500">Available coins</p>
           </div>
         </div>
+
         <div className="p-4 lg:p-6 bg-white rounded-lg shadow-sm border">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="text-sm font-medium text-gray-600">Total Deposits</h3>
@@ -1714,6 +1706,7 @@ export default function UserTransactions() {
             <p className="text-xs text-gray-500">Completed deposits</p>
           </div>
         </div>
+
         <div className="p-4 lg:p-6 bg-white rounded-lg shadow-sm border">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="text-sm font-medium text-gray-600">Total Withdrawals</h3>
@@ -1724,6 +1717,7 @@ export default function UserTransactions() {
             <p className="text-xs text-gray-500">Completed withdrawals</p>
           </div>
         </div>
+
         <div className="p-4 lg:p-6 bg-white rounded-lg shadow-sm border">
           <div className="flex flex-row items-center justify-between space-y-0 pb-2">
             <h3 className="text-sm font-medium text-gray-600">Pending Transactions</h3>
@@ -1741,14 +1735,22 @@ export default function UserTransactions() {
           <h3 className="text-lg font-bold mb-1">Transaction History</h3>
           <p className="text-sm text-gray-600">All your coin transactions</p>
         </div>
-        <div className="overflow-x-auto max-h-96 lg:max-h-[500px] overflow-y-auto">
+
+        {/* Desktop Table View */}
+        <div className="hidden sm:block overflow-x-auto max-h-96 lg:max-h-[500px] overflow-y-auto">
           <table className="w-full min-w-[600px]">
             <thead className="bg-gray-50 sticky top-0">
               <tr>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Transaction ID</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Transaction ID
+                </th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Amount
+                </th>
+                <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
                 <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
               </tr>
             </thead>
@@ -1766,9 +1768,7 @@ export default function UserTransactions() {
                     <td className="px-3 py-3 text-sm">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          tx.type === "DEPOSIT"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-red-100 text-red-800"
+                          tx.type === "DEPOSIT" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
                         }`}
                       >
                         {tx.type}
@@ -1794,6 +1794,48 @@ export default function UserTransactions() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Card View */}
+        <div className="sm:hidden">
+          {safeTransactions.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">No transactions found</div>
+          ) : (
+            safeTransactions.map((tx) => (
+              <div key={tx.id} className="border-b border-gray-200 p-4">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-base">Transaction #{tx.id}</div>
+                    <div className="text-sm text-gray-500 mt-1">{formatDate(tx.created_at)}</div>
+                  </div>
+                  <div className="text-right ml-3">
+                    <div className="font-bold text-lg">🪙 {tx.amount.toFixed(2)}</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      tx.type === "DEPOSIT" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    {tx.type}
+                  </span>
+                  <span
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      tx.status === "COMPLETE"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : tx.status === "PENDING"
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    {tx.status}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
