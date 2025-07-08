@@ -26,11 +26,10 @@ function App() {
           <div className="max-w-7xl mx-auto px-4">
             <div className="flex justify-between h-16">
               <div className="flex items-center">
-                <h1 className="text-xl font-bold text-gray-800">Zerodha Trading Dashboard</h1>
+                <h1 className="text-xl font-bold text-gray-800">Trading Dashboard</h1>
               </div>
               <div className="flex items-center space-x-4">
                 <Link to="/" className="text-gray-600 hover:text-gray-900">Home</Link>
-                <Link to="/watchlist" className="text-gray-600 hover:text-gray-900">Live Watchlist</Link>
               </div>
             </div>
           </div>
@@ -82,22 +81,10 @@ function Home() {
 <div className="flex justify-center items-center py-12">
   <div className="flex gap-4 p-6 bg-white rounded-xl shadow-lg">
     <Link
-      to="/watchlist"
-      className="min-w-[120px] px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium text-center hover:bg-blue-700 transition-all duration-200"
-    >
-      Live Watchlist
-    </Link>
-    <Link
       to="/login"
       className="min-w-[120px] px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium text-center hover:bg-blue-700 transition-all duration-200"
     >
       Login
-    </Link>
-    <Link
-      to="/zerodha-callback"
-      className="min-w-[120px] px-4 py-2 bg-blue-600 text-white rounded-full text-sm font-medium text-center hover:bg-blue-700 transition-all duration-200"
-    >
-      Callback
     </Link>
   </div>
 </div>
