@@ -1101,7 +1101,6 @@ function UserPortfolio() {
 export default UserPortfolio
 
 */
-
 import { ArrowDown, ArrowUp, LineChart, PieChart } from "../../components/icons"
 import { useEffect, useState, useRef } from 'react'
 import { io } from "socket.io-client"
@@ -1242,9 +1241,9 @@ function UserPortfolio() {
     }
   }, [portfolioData])
 
-  // Helper function to get current price with proper fallback
+  // Helper function to get current price with proper fallback - ENHANCED LIVE DATA LOGIC
   const getCurrentPrice = (instrumentKey, fallbackPrice, avgPrice) => {
-    // Only use real-time data if WebSocket is connected AND we have valid data
+    // PRIORITY 1: Only use real-time data if WebSocket is connected AND we have valid data
     if (connectionStatus === "connected" && realTimeData[instrumentKey]?.last_price !== undefined) {
       const realTimePrice = realTimeData[instrumentKey].last_price
       if (realTimePrice !== null && realTimePrice > 0) {
@@ -1253,26 +1252,28 @@ function UserPortfolio() {
       }
     }
     
-    // Extract numeric value from fallback price
+    // PRIORITY 2: Extract numeric value from fallback price (cached/stored price)
     let price = 0
     if (typeof fallbackPrice === 'object' && fallbackPrice !== null) {
+      // If fallbackPrice is an object, try to extract the price
       price = parseFloat(fallbackPrice.price || fallbackPrice.current_price || fallbackPrice.last_price || 0)
     } else {
+      // If it's already a number or string
       price = parseFloat(fallbackPrice) || 0
     }
     
-    // If we still don't have a valid price, use average price as fallback
+    // PRIORITY 3: If we still don't have a valid price, use average price as final fallback
     if (price <= 0) {
       price = parseFloat(avgPrice) || 0
-      console.log(`Using average price as fallback for ${instrumentKey}: ${price}`)
+      console.log(`Using average price as final fallback for ${instrumentKey}: ${price}`)
     } else {
-      console.log(`Using fallback price for ${instrumentKey}: ${price}`)
+      console.log(`Using fallback price for ${instrumentKey}: ${price} (original: ${JSON.stringify(fallbackPrice)})`)
     }
     
     return price
   }
 
-  // Helper function to calculate real-time P&L
+  // Helper function to calculate real-time P&L with enhanced logging
   const calculateRealTimePnL = (position) => {
     const currentPrice = getCurrentPrice(position.instrument_key, position.current_price, position.average_price)
     const quantity = parseInt(position.quantity) || 0
@@ -1282,6 +1283,8 @@ function UserPortfolio() {
     const currentValue = currentPrice * quantity
     const pnl = currentValue - investmentValue
     const pnlPercent = investmentValue > 0 ? (pnl / investmentValue) * 100 : 0
+    
+    console.log(`P&L calc for ${position.instrument_key}: qty=${quantity}, avgPrice=${avgPrice}, currentPrice=${currentPrice}, investment=${investmentValue}, currentValue=${currentValue}, pnl=${pnl}`)
     
     return {
       currentPrice,
@@ -1302,18 +1305,20 @@ function UserPortfolio() {
     return Math.abs(num).toFixed(2)
   }
 
-  // Calculate summary with real-time data - ONLY for current holdings
+  // Calculate summary with real-time data - ENHANCED for current holdings only
   const calculateSummary = () => {
     if (!portfolioData?.positions) return { total_current_value: 0, total_investment: 0, total_pnl: 0, total_pnl_percent: 0 }
 
     let totalCurrentValue = 0
     let totalInvestment = 0
 
-    // Filter out positions with zero quantity (sold positions)
+    // CRITICAL: Filter out positions with zero quantity (sold positions)
     const currentHoldings = portfolioData.positions.filter(position => {
       const quantity = parseInt(position.quantity) || 0
       return quantity > 0
     })
+
+    console.log(`Total positions: ${portfolioData.positions.length}, Current holdings: ${currentHoldings.length}`)
 
     currentHoldings.forEach(position => {
       const { currentValue } = calculateRealTimePnL(position)
@@ -1321,12 +1326,16 @@ function UserPortfolio() {
       const avgPrice = parseFloat(position.average_price) || 0
       const investmentValue = avgPrice * quantity
       
+      console.log(`Summary calc for ${position.instrument_key}: qty=${quantity}, avgPrice=${avgPrice}, investment=${investmentValue}, currentValue=${currentValue}`)
+      
       totalCurrentValue += currentValue
       totalInvestment += investmentValue
     })
 
     const totalPnl = totalCurrentValue - totalInvestment
     const totalPnlPercent = totalInvestment > 0 ? (totalPnl / totalInvestment) * 100 : 0
+
+    console.log(`Summary totals: currentValue=${totalCurrentValue}, investment=${totalInvestment}, pnl=${totalPnl}, pnlPercent=${totalPnlPercent}`)
 
     return {
       total_current_value: totalCurrentValue,
@@ -1362,7 +1371,7 @@ function UserPortfolio() {
             <div className="flex items-center gap-1">
               🪙{formatCurrency(currentPrice)}
               {isRealTime && (
-                <span className="w-2 h-2 bg-green-500 rounded-full" title="Live price"></span>
+                <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Live price"></span>
               )}
             </div>
           </td>
