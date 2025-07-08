@@ -18,8 +18,14 @@ const supabase = createClient(
   process.env.VITE_SUPABASE_ANON_KEY
 );
 
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
 const app = express()
-const PORT = 3000
+//const PORT = 3000
 const cookieParser = require('cookie-parser');
 
 // Cache for OHLC data (5 minutes)
