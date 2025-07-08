@@ -12,11 +12,11 @@ let activeWatchlist = []
 const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
-// Initialize Supabase client
-// const supabase = createClient(
-//   process.env.VITE_SUPABASE_URL,
-//   process.env.VITE_SUPABASE_ANON_KEY
-// );
+
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.VITE_SUPABASE_ANON_KEY
+);
 
 
 // const PORT = process.env.PORT || 3000;
