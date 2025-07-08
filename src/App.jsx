@@ -28,18 +28,16 @@ function App() {
               <div className="flex items-center">
                 <h1 className="text-xl font-bold text-gray-800">Trading Dashboard</h1>
               </div>
-              <div className="flex items-center space-x-4">
+              {/* <div className="flex items-center space-x-4">
                 <Link to="/login" className="text-gray-600 hover:text-gray-900">Login</Link>
-              </div>
+              </div> */}
             </div>
           </div>
         </nav>
 
 <Routes>
           {/* Public Routes */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/watchlist" element={<LiveWatchlist />} />
-          <Route path="/zerodha-callback" element={<ZerodhaCallback />} />
+          <Route path="/" element={<LoginPage />} />
 
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminLayout />}>
