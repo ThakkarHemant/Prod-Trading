@@ -557,7 +557,7 @@ console.log('Environment:', import.meta.env.PROD ? 'Production' : 'Development')
 }
 
 export default UserPortfolio
-*/
+*//*
 import { ArrowDown, ArrowUp, LineChart, PieChart } from "../../components/icons"
 import { useEffect, useState, useRef } from 'react'
 import { io } from "socket.io-client"
@@ -915,7 +915,7 @@ function UserPortfolio() {
 
   return (
     <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* Header with Coin Balance and Connection Status */}
+      {/* Header with Coin Balance and Connection Status }
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <div>
           <h1 style={{ fontSize: '36px', fontWeight: 'bold', margin: '0 0 8px 0' }}>Portfolio</h1>
@@ -937,9 +937,9 @@ function UserPortfolio() {
         </div>
       </div>
 
-      {/* Summary Cards */}
+      {/* Summary Cards }
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {/* Portfolio Value Card */}
+        {/* Portfolio Value Card }
         <div style={{ padding: '24px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 'medium', margin: 0 }}>Portfolio Value</h3>
@@ -951,7 +951,7 @@ function UserPortfolio() {
           <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>Current market value</p>
         </div>
 
-        {/* Total Investment Card */}
+        {/* Total Investment Card }
         <div style={{ padding: '24px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 'medium', margin: 0 }}>Total Investment</h3>
@@ -963,7 +963,7 @@ function UserPortfolio() {
           <p style={{ fontSize: '12px', color: '#666', margin: 0 }}>Cost basis</p>
         </div>
 
-        {/* Total P&L Card */}
+        {/* Total P&L Card }
         <div style={{ padding: '24px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 'medium', margin: 0 }}>Total P&L</h3>
@@ -987,7 +987,7 @@ function UserPortfolio() {
           </p>
         </div>
 
-        {/* Return Card */}
+        {/* Return Card }
         <div style={{ padding: '24px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 'medium', margin: 0 }}>Return</h3>
@@ -1010,7 +1010,7 @@ function UserPortfolio() {
         </div>
       </div>
 
-      {/* Portfolio Holdings */}
+      {/* Portfolio Holdings }
       <div style={{ backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
         <div style={{ padding: '24px 24px 16px 24px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: 'bold', margin: '0 0 8px 0' }}>Portfolio Summary</h3>
@@ -1022,7 +1022,7 @@ function UserPortfolio() {
           </p>
         </div>
         
-        {/* Manual Tab Implementation */}
+        {/* Manual Tab Implementation }
         <div style={{ padding: '0 24px' }}>
           <div style={{ display: 'flex', borderBottom: '1px solid #eee', marginBottom: '16px' }}>
             <button 
@@ -1066,7 +1066,7 @@ function UserPortfolio() {
             </button>
           </div>
           
-          {/* Table */}
+          {/* Table }
           <div style={{ overflowX: 'auto', paddingBottom: '24px' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -1088,7 +1088,7 @@ function UserPortfolio() {
         </div>
       </div>
       
-      {/* Debug Info */}
+      {/* Debug Info }
       <div style={{ marginTop: '24px', padding: '16px', backgroundColor: '#f3f4f6', borderRadius: '8px' }}>
         <h4>Debug Information:</h4>
         <p>Total Positions: {positions?.length || 0}</p>
@@ -1097,6 +1097,300 @@ function UserPortfolio() {
         <p>MCX Stocks: {mcxStocks.length}</p>
         <p>Active Tab: {activeTab}</p>
         <p>Positions to Display: {getDisplayPositions().length}</p>
+      </div>
+    </div>
+  )
+}
+
+export default UserPortfolio
+*/
+
+import { ArrowDown, ArrowUp, LineChart, PieChart } from "../../components/icons"
+import { useEffect, useState, useRef } from 'react'
+import { io } from "socket.io-client"
+
+function UserPortfolio() {
+  const [portfolioData, setPortfolioData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [realTimeData, setRealTimeData] = useState({})
+  const [connectionStatus, setConnectionStatus] = useState("disconnected")
+  const [activeTab, setActiveTab] = useState("all")
+  const socketRef = useRef(null)
+
+  const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:3000"
+  const userId = localStorage.getItem("id")
+
+  useEffect(() => {
+    if (!userId) {
+      console.error("No user ID found")
+      return
+    }
+
+    const socket = io(SOCKET_URL, {
+      path: "/socket.io",
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      auth: { userId },
+      query: {
+        clientType: "web",
+        version: "1.0"
+      }
+    })
+
+    socket.on("connect", () => {
+      console.log("Portfolio WS Connected with ID:", socket.id)
+      setConnectionStatus("connected")
+    })
+
+    socket.on("connect_error", (err) => {
+      console.error("Portfolio WS Connection error:", err.message)
+      setConnectionStatus("error")
+      setRealTimeData({})
+    })
+
+    socket.on("disconnect", (reason) => {
+      console.log("Portfolio WS Disconnected:", reason)
+      setConnectionStatus("disconnected")
+      setRealTimeData({})
+    })
+
+    socket.on("watchlist_update", (data) => {
+      setRealTimeData(prev => ({
+        ...prev,
+        ...data.reduce((acc, item) => {
+          acc[item.instrument_key] = item
+          return acc
+        }, {})
+      }))
+    })
+
+    socketRef.current = socket
+
+    return () => {
+      if (socket.connected) {
+        socket.disconnect()
+      }
+    }
+  }, [userId])
+
+  useEffect(() => {
+    const fetchPortfolio = async () => {
+      try {
+        const currentUser = JSON.parse(localStorage.getItem('currentUser'))
+        if (!currentUser?.id) throw new Error("User not authenticated")
+
+        const res = await fetch(`/api/v2/trades/portfolio/${currentUser.id}`, {
+          headers: { 'Content-Type': 'application/json' }
+        })
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}))
+          throw new Error(errorData.message || 'Server error')
+        }
+
+        const data = await res.json()
+        if (data.success) setPortfolioData(data.portfolio)
+        else throw new Error(data.error || "Failed to load")
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchPortfolio()
+  }, [])
+
+  useEffect(() => {
+    if (socketRef.current?.connected && portfolioData?.positions?.length > 0) {
+      const instruments = portfolioData.positions.map(pos => pos.instrument_key)
+      socketRef.current.emit("watchlist_subscribe", instruments)
+    }
+  }, [portfolioData])
+
+  const getCurrentPrice = (instrumentKey, fallbackPrice, avgPrice) => {
+    if (connectionStatus === "connected" && realTimeData[instrumentKey]?.last_price > 0) {
+      return realTimeData[instrumentKey].last_price
+    }
+
+    let price = typeof fallbackPrice === 'object' ? parseFloat(fallbackPrice?.price || fallbackPrice?.current_price || 0) : parseFloat(fallbackPrice)
+    return price > 0 ? price : parseFloat(avgPrice) || 0
+  }
+
+  const calculateRealTimePnL = (position) => {
+    const currentPrice = getCurrentPrice(position.instrument_key, position.current_price, position.average_price)
+    const quantity = parseInt(position.quantity) || 0
+    const avgPrice = parseFloat(position.average_price) || 0
+
+    const currentValue = currentPrice * quantity
+    const investmentValue = avgPrice * quantity
+    const pnl = currentValue - investmentValue
+    const pnlPercent = investmentValue ? (pnl / investmentValue) * 100 : 0
+
+    return { currentPrice, currentValue, pnl, pnlPercent }
+  }
+
+  const formatCurrency = (value) => (parseFloat(value) || 0).toFixed(2)
+  const formatPercentage = (value) => Math.abs(parseFloat(value) || 0).toFixed(2)
+
+  const calculateSummary = () => {
+    if (!portfolioData?.positions) return { total_current_value: 0, total_investment: 0, total_pnl: 0, total_pnl_percent: 0 }
+
+    let totalCurrentValue = 0
+    let totalInvestment = 0
+
+    portfolioData.positions
+      .filter(pos => parseInt(pos.quantity) > 0)
+      .forEach(pos => {
+        const { currentValue } = calculateRealTimePnL(pos)
+        const investment = (parseFloat(pos.average_price) || 0) * (parseInt(pos.quantity) || 0)
+        totalCurrentValue += currentValue
+        totalInvestment += investment
+      })
+
+    const totalPnl = totalCurrentValue - totalInvestment
+    const totalPnlPercent = totalInvestment ? (totalPnl / totalInvestment) * 100 : 0
+
+    return {
+      total_current_value: totalCurrentValue,
+      total_investment: totalInvestment,
+      total_pnl: totalPnl,
+      total_pnl_percent: totalPnlPercent
+    }
+  }
+
+  const renderTableRows = (positions) => {
+    if (!positions || positions.length === 0) {
+      return <tr><td colSpan="7" style={{ padding: '20px', textAlign: 'center' }}>No holdings found</td></tr>
+    }
+
+    return positions.map(pos => {
+      const { currentPrice, currentValue, pnl, pnlPercent } = calculateRealTimePnL(pos)
+      const isLive = connectionStatus === "connected" && realTimeData[pos.instrument_key]?.last_price !== undefined
+
+      return (
+        <tr key={pos.instrument_key} style={{ borderBottom: '1px solid #eee' }}>
+          <td style={{ padding: '12px', fontWeight: 'bold' }}>{pos.instrument_key}</td>
+          <td style={{ padding: '12px' }}>{pos.quantity}</td>
+          <td style={{ padding: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              🪙{formatCurrency(currentPrice)}
+              {isLive && <span title="Live price" style={{ width: '8px', height: '8px', backgroundColor: '#10b981', borderRadius: '50%' }}></span>}
+            </div>
+          </td>
+          <td style={{ padding: '12px' }}>🪙{formatCurrency(currentValue)}</td>
+          <td style={{ padding: '12px', color: pnl >= 0 ? '#10b981' : '#ef4444' }}>
+            {pnl >= 0 ? "+" : ""}🪙{formatCurrency(Math.abs(pnl))}
+          </td>
+          <td style={{ padding: '12px', color: pnlPercent >= 0 ? '#10b981' : '#ef4444' }}>
+            {pnlPercent >= 0 ? "+" : ""}{formatPercentage(pnlPercent)}%
+          </td>
+          <td style={{ padding: '12px' }}>{pos.trade_count || 0}</td>
+        </tr>
+      )
+    })
+  }
+
+  if (loading) {
+    return <div style={{ padding: '32px', textAlign: 'center' }}>Loading portfolio...</div>
+  }
+
+  if (error) {
+    return <div style={{ padding: '32px', textAlign: 'center', color: '#ef4444' }}>Error: {error}</div>
+  }
+
+  const { positions, coin_balance } = portfolioData
+  const summary = calculateSummary()
+  const currentHoldings = positions.filter(p => parseInt(p.quantity) > 0)
+  const nseStocks = currentHoldings.filter(p => p.instrument_key?.startsWith('NSE'))
+  const mcxStocks = currentHoldings.filter(p => p.instrument_key?.startsWith('MCX'))
+
+  const getDisplayPositions = () => {
+    switch (activeTab) {
+      case 'nse': return nseStocks
+      case 'mcx': return mcxStocks
+      default: return currentHoldings
+    }
+  }
+
+  return (
+    <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '24px' }}>
+        <div>
+          <h1>Portfolio</h1>
+          <p>
+            WebSocket: <span style={{ color: connectionStatus === 'connected' ? '#10b981' : '#ef4444' }}>
+              {connectionStatus}
+            </span>
+          </p>
+        </div>
+        <div>
+          <strong>🪙{coin_balance ?? 0}</strong>
+          <p>Available coins</p>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        {[
+          { title: "Portfolio Value", icon: <PieChart />, value: summary.total_current_value },
+          { title: "Total Investment", icon: <LineChart />, value: summary.total_investment },
+          { title: "Total P&L", icon: summary.total_pnl >= 0 ? <ArrowUp /> : <ArrowDown />, value: summary.total_pnl },
+          { title: "Return", icon: summary.total_pnl_percent >= 0 ? <ArrowUp /> : <ArrowDown />, value: summary.total_pnl_percent + '%' }
+        ].map((card, i) => (
+          <div key={i} style={{ flex: 1, minWidth: '220px', padding: '16px', borderRadius: '8px', backgroundColor: 'white', boxShadow: '0 2px 4px #eee' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <p>{card.title}</p>
+              {card.icon}
+            </div>
+            <h2>{typeof card.value === 'number' ? '🪙' + formatCurrency(card.value) : card.value}</h2>
+          </div>
+        ))}
+      </div>
+
+      {/* Tabs */}
+      <div style={{ marginBottom: '16px' }}>
+        {['all', 'nse', 'mcx'].map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            padding: '8px 16px',
+            border: 'none',
+            borderBottom: activeTab === tab ? '2px solid #3b82f6' : 'none',
+            background: 'transparent',
+            cursor: 'pointer',
+            marginRight: '16px',
+            color: activeTab === tab ? '#3b82f6' : '#666'
+          }}>
+            {tab.toUpperCase()} ({tab === 'all' ? currentHoldings.length : tab === 'nse' ? nseStocks.length : mcxStocks.length})
+          </button>
+        ))}
+      </div>
+
+      {/* Table Wrapper (scrollable) */}
+      <div style={{
+        maxHeight: '400px',
+        overflowY: 'auto',
+        overflowX: 'auto',
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.05)',
+        padding: '16px'
+      }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #eee' }}>
+              {['Instrument', 'Quantity', 'Current Price', 'Value', 'P&L', 'Return %', 'Trades'].map(h => (
+                <th key={h} style={{ padding: '12px', textAlign: 'left', fontWeight: 'bold' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {renderTableRows(getDisplayPositions())}
+          </tbody>
+        </table>
       </div>
     </div>
   )
