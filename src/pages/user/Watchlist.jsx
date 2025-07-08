@@ -250,9 +250,12 @@ function UserWatchlist() {
   // // WebSocket URL - change for production
   // const SOCKET_URL = "ws://localhost:3000"
   // WebSocket URL - automatically detects environment
-  const SOCKET_URL = import.meta.env.PROD 
-  ? window.location.origin.replace('https://', 'wss://').replace('http://', 'ws://')
-  : "ws://localhost:3000";
+const SOCKET_URL = import.meta.env.PROD 
+  ? window.location.origin
+  : "http://localhost:3000";
+
+console.log('Socket URL:', SOCKET_URL);
+console.log('Environment:', import.meta.env.PROD ? 'Production' : 'Development');
 
   // Get user ID from localStorage
   const userId = localStorage.getItem("id")
