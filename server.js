@@ -34,7 +34,7 @@ const QUOTE_CACHE_DURATION = 30 * 1000; // 30 seconds
 // Middleware
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:5173", "https://trading-lemon-xi.vercel.app"],
+    origin: ["http://localhost:3000", "http://localhost:5173"],
     credentials: true,
   }),
 );
@@ -413,28 +413,27 @@ app.post("/api/auth/session", async (req, res) => {
       return res.status(400).json({ error: "Zerodha API credentials not configured" });
     }
 
-    // Handle test tokens
-    if (request_token === 'test123') {
-      console.log('Test token detected, returning mock response');
+    // // Handle test tokens
+    // if (request_token === 'test123') {
+    //   console.log('Test token detected, returning mock response');
       
-      accessToken = 'test_access_token';
-      userProfile = {
-        user_id: 'TEST123',
-        user_name: 'Test User',
-        user_shortname: 'Test',
-        email: 'test@example.com',
-        user_type: 'individual',
-        broker: 'ZERODHA'
-      };
+    //   accessToken = 'test_access_token';
+    //   userProfile = {
+    //     user_id: 'TEST123',
+    //     user_name: 'Test User',
+    //     user_shortname: 'Test',
+    //     email: 'test@example.com',
+    //     user_type: 'individual',
+    //     broker: 'ZERODHA'
+    //   };
       
-      return res.json({
-        success: true,
-        access_token: 'test_access_token',
-        user: userProfile,
-        message: "Test authentication successful",
-      });
-    }
-    
+    //   return res.json({
+    //     success: true,
+    //     access_token: 'test_access_token',
+    //     user: userProfile,
+    //     message: "Test authentication successful",
+    //   });
+    // }
 
     const checksum = generateChecksum(ZERODHA_API_KEY, request_token, ZERODHA_API_SECRET);
 
@@ -1651,7 +1650,7 @@ app.use("*", (req, res) => {
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:5173", "https://trading-lemon-xi.vercel.app"],
+    origin: ["http://localhost:3000", "http://localhost:5173"],
     credentials: true,
     methods: ["GET", "POST"]
   },
@@ -1756,7 +1755,7 @@ async function updateMarketData() {
   try {
     console.log('[Market] Fetching data for:', activeWatchlist.length, 'instruments:', activeWatchlist);
     
-    const response = await axios.post('https://trading-lemon-xi.vercel.app/api/quote', {
+    const response = await axios.post('http://localhost:3000/api/quote', {
       instruments: activeWatchlist 
     }, {
       headers: {
