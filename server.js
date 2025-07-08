@@ -1919,10 +1919,11 @@ async function startServer() {
   try {
     let port;
     
-    if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
-      // On Railway, use the provided PORT directly
+    // Check for Render, Railway, or general production environment
+    if (process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
+      // On cloud platforms, use the provided PORT directly
       port = process.env.PORT || 3000;
-      console.log(`[RAILWAY] Using Railway-assigned port: ${port}`);
+      console.log(`[PRODUCTION] Using cloud-assigned port: ${port}`);
     } else {
       // Only use findAvailablePort in local development
       port = await findAvailablePort(PORT);
@@ -1932,14 +1933,17 @@ async function startServer() {
     // Initialize instruments before starting server
     initializeInstruments();
 
-    // IMPORTANT: Use 0.0.0.0 as host for Railway
+    // IMPORTANT: Use 0.0.0.0 as host for cloud platforms
     server.listen(port, '0.0.0.0', () => {
       console.log(`🚀 Zerodha Trading API Server running on port ${port}`);
       
       // Environment-aware logging
-      if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
-        console.log(`📊 API URL: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'your-app.up.railway.app'}/api`);
-        console.log(`🔌 WebSocket URL: wss://${process.env.RAILWAY_PUBLIC_DOMAIN || 'your-app.up.railway.app'}/socket.io`);
+      if (process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
+        const domain = process.env.RENDER_EXTERNAL_URL || 
+                      process.env.RAILWAY_PUBLIC_DOMAIN || 
+                      'your-app.onrender.com';
+        console.log(`📊 API URL: ${domain}/api`);
+        console.log(`🔌 WebSocket URL: ${domain.replace('https://', 'wss://')}/socket.io`);
       } else {
         console.log(`📊 API URL: http://localhost:${port}/api`);
         console.log(`🔌 WebSocket URL: ws://localhost:${port}`);
@@ -1961,8 +1965,6 @@ async function startServer() {
     process.exit(1);
   }
 }
-
-
 
 startServer();
 
