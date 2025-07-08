@@ -13,13 +13,13 @@ const http = require('http');
 const socketIo = require('socket.io');
 const jwt = require('jsonwebtoken');
 // Initialize Supabase client
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
-);
+// const supabase = createClient(
+//   process.env.VITE_SUPABASE_URL,
+//   process.env.VITE_SUPABASE_ANON_KEY
+// );
 
 
-const PORT = process.env.PORT || 3000;
+// const PORT = process.env.PORT || 3000;
 
 
 
@@ -1887,18 +1887,64 @@ app.get('/debug/watchlist', (req, res) => {
 initialize();
 
 
+// async function startServer() {
+//   try {
+//     const port = await findAvailablePort(PORT);
+
+//     // Initialize instruments before starting server
+//     initializeInstruments();
+
+//     // Use server.listen instead of app.listen
+//     server.listen(port, () => {
+//       console.log(`🚀 Zerodha Trading API Server running on port ${port}`);
+//       console.log(`📊 API URL: http://localhost:${port}/api`);
+//       console.log(`🔌 WebSocket URL: ws://localhost:${port}`);
+//       console.log(`🔑 Zerodha API Key: ${ZERODHA_API_KEY ? `${ZERODHA_API_KEY.substring(0, 8)}...` : "Not configured"}`);
+//       console.log(`🔐 Zerodha API Secret: ${ZERODHA_API_SECRET ? "Configured" : "Not configured"}`);
+//       console.log(`🌐 Login URL: https://kite.trade/connect/login?api_key=${ZERODHA_API_KEY}`);
+//       console.log(`📋 Instruments loaded: ${getInstruments().length} (${getDataSource()})`);
+//       console.log(`\n📋 Available endpoints:`);
+//       console.log(`   GET  /api - API documentation`);
+//       console.log(`   GET  /api/health - Health check`);
+//       console.log(`   GET  /api/search?q=term - Search instruments`);
+//       console.log(`   GET  /api/instruments/status - Instruments status`);
+//       console.log(`   WS   /socket.io - WebSocket connection`);
+//     });
+//   } catch (error) {
+//     console.error("❌ Failed to start server:", error.message);
+//     process.exit(1);
+//   }
+// }
 async function startServer() {
   try {
-    const port = await findAvailablePort(PORT);
+    let port;
+    
+    if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
+      // On Railway, use the provided PORT directly
+      port = process.env.PORT || 3000;
+      console.log(`[RAILWAY] Using Railway-assigned port: ${port}`);
+    } else {
+      // Only use findAvailablePort in local development
+      port = await findAvailablePort(PORT);
+      console.log(`[LOCAL] Using available port: ${port}`);
+    }
 
     // Initialize instruments before starting server
     initializeInstruments();
 
-    // Use server.listen instead of app.listen
-    server.listen(port, () => {
+    // IMPORTANT: Use 0.0.0.0 as host for Railway
+    server.listen(port, '0.0.0.0', () => {
       console.log(`🚀 Zerodha Trading API Server running on port ${port}`);
-      console.log(`📊 API URL: http://localhost:${port}/api`);
-      console.log(`🔌 WebSocket URL: ws://localhost:${port}`);
+      
+      // Environment-aware logging
+      if (process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production') {
+        console.log(`📊 API URL: https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'your-app.up.railway.app'}/api`);
+        console.log(`🔌 WebSocket URL: wss://${process.env.RAILWAY_PUBLIC_DOMAIN || 'your-app.up.railway.app'}/socket.io`);
+      } else {
+        console.log(`📊 API URL: http://localhost:${port}/api`);
+        console.log(`🔌 WebSocket URL: ws://localhost:${port}`);
+      }
+      
       console.log(`🔑 Zerodha API Key: ${ZERODHA_API_KEY ? `${ZERODHA_API_KEY.substring(0, 8)}...` : "Not configured"}`);
       console.log(`🔐 Zerodha API Secret: ${ZERODHA_API_SECRET ? "Configured" : "Not configured"}`);
       console.log(`🌐 Login URL: https://kite.trade/connect/login?api_key=${ZERODHA_API_KEY}`);
@@ -1915,6 +1961,8 @@ async function startServer() {
     process.exit(1);
   }
 }
+
+
 
 startServer();
 
