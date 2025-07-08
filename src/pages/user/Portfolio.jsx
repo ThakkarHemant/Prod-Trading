@@ -17,11 +17,12 @@ function UserPortfolio() {
 
   // WebSocket URL - automatically detects environment
 const SOCKET_URL = import.meta.env.PROD 
-  ? window.location.origin
+  ? "https://prod-trading.onrender.com"  // Your actual backend URL
   : "http://localhost:3000";
 
 console.log('Socket URL:', SOCKET_URL);
 console.log('Environment:', import.meta.env.PROD ? 'Production' : 'Development');
+
   // Get user ID from localStorage
   const userId = localStorage.getItem("id")
 
