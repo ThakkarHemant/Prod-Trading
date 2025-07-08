@@ -247,8 +247,12 @@ function UserWatchlist() {
   const [userBalance, setUserBalance] = useState(null)
   const socketRef = useRef(null)
 
-  // WebSocket URL - change for production
-  const SOCKET_URL = "ws://localhost:3000"
+  // // WebSocket URL - change for production
+  // const SOCKET_URL = "ws://localhost:3000"
+  // WebSocket URL - automatically detects environment
+  const SOCKET_URL = import.meta.env.PROD 
+  ? window.location.origin.replace('https://', 'wss://').replace('http://', 'ws://')
+  : "ws://localhost:3000";
 
   // Get user ID from localStorage
   const userId = localStorage.getItem("id")
